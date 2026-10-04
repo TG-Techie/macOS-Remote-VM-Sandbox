@@ -29,6 +29,9 @@ scripts/setup-mac.sh --open sandbox
 dist/vmsandbox run vms/sandbox.vmbundle --share vms/empty-share --gui
 ```
 
+Every run mounts the setup scripts (`dist/guest`, read-only) at `/Volumes/My Shared Files/tools`;
+`--share` is the project, left empty for the base image.
+
 ## Run
 
 ```sh
