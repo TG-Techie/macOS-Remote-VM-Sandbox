@@ -7,7 +7,7 @@ set -euo pipefail
 bundle=${1:A} out=${2:A}
 [[ -f $bundle/config.json ]] || { echo "no VM at $bundle (missing config.json)" >&2; exit 1 }
 [[ ! -e $out ]] || { echo "$out already exists" >&2; exit 1 }
-# Holding the bundle's lock (the one vmsandbox run takes) for the whole copy refuses a running VM
+# Holding the bundle's lock (the one sandbox-vm run takes) for the whole copy refuses a running VM
 # and keeps one from starting mid-copy. -k keeps lockf from deleting config.json afterwards.
 lockf -k -t 0 "$bundle/config.json" \
   tar --format pax -C "${bundle:h}" -czf "$out.partial" --options gzip:compression-level=1 "${bundle:t}" \

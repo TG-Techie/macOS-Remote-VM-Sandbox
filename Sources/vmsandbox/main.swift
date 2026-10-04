@@ -7,36 +7,45 @@ import Virtualization
 // port. The binary needs the com.apple.security.virtualization entitlement to start a VM.
 
 let usage = """
-VM mode: a macOS VM with one project folder shared in. (No VM: dist/sandbox-host.)
-usage (dist/sandbox-vm, or dist/vmsandbox):
-  vmsandbox ipsw-url
-      Print the URL of the latest macOS restore image this Mac supports. Downloads nothing.
-  vmsandbox ipsw-info RESTORE.ipsw
-      Print the macOS version in a restore image and the least CPUs and memory it needs here.
-  vmsandbox create BUNDLE --ipsw RESTORE.ipsw [--cpus N] [--memory-gb N] [--disk-gb N]
-      Make a VM bundle and install macOS into it. Defaults: all CPUs, physical memory less
-      8 GiB, a 64 GiB sparse disk.
-  vmsandbox ip BUNDLE
-      Print a running VM's address on its private NAT network.
-  vmsandbox exec BUNDLE [--root] [--user U] [--password P] [--host IP] SCRIPT|-
-      Run a zsh script in a running VM over SSH (account admin/admin by default), as root
-      with --root. Needs Remote Login on in the guest.
-  vmsandbox run BUNDLE --share PROJECT_DIR [--memory-gb N] [--cpus N] [--tools DIR] [--gui]
-                [--network nat|none] [--listen tailscale|HOST[:PORT]] [--ssh tailscale|HOST[:PORT]] [--guest-port N]
-      Boot the VM. The guest sees PROJECT_DIR read-write at /Volumes/My Shared Files/project
-      and DIR (default: guest/ beside this binary) read-only at .../tools. MCP is forwarded
-      from http://HOST:PORT/mcp (default 127.0.0.1:8765) to guest vsock port N (default 8765).
-      --memory-gb and --cpus apply to this boot only; the defaults are the values from create.
+VM mode: a macOS VM with one project folder shared in, serving shell, file and git tools.
+(No VM, on this Mac: dist/sandbox-host.) NAME is a VM in vms/, default sandbox.
+
+usage: dist/sandbox-vm run [NAME] [--share DIR] [--memory-gb N] [--cpus N] [--tailnet] [--gui]
+                          [--no-network] [--mcp-port N] [--ssh-port N]
+  --share DIR       The project folder, read-write in the guest. Default: the one this VM last
+                    ran with (needed the first time).
+  --memory-gb N     Memory for this boot. Default: the VM's own, from create.
+  --cpus N          CPUs for this boot. Default: the VM's own.
+  --tailnet         Serve MCP and SSH on this Mac's Tailscale address. Default: 127.0.0.1 only.
+  --gui             Open the VM's window.
+  --no-network      No network in the guest. MCP and SSH still work (over vsock).
+  --mcp-port N      MCP's port, default 8765. --ssh-port N: SSH's, default 8722.
+
+       dist/sandbox-vm create [NAME] [--memory-gb N] [--cpus N] [--disk-gb 64] [--ipsw FILE]
+  Make a VM and install macOS. Without --ipsw, downloads the newest restore image this Mac
+  supports into vms/ (about 15-20 GB) and keeps it.
+
+       dist/sandbox-vm exec SCRIPT|- [--vm NAME] [--as-root]
+  Run a zsh script in a running VM over SSH (account admin/admin; --user, --password, --host).
+
+       dist/sandbox-vm ip [NAME]           a running VM's address on its private network
+       dist/sandbox-vm ipsw-url            the newest restore image's URL (downloads nothing)
+       dist/sandbox-vm ipsw-info FILE      a restore image's macOS version and needs
 """
 
-/// Options of host mode (no VM), named in the error when one is given here.
-let hostOnly = Dictionary(uniqueKeysWithValues: ["root", "expose", "rsync", "allow-read", "print-profile"].map {
-    ($0, "host mode, the tools on this Mac with no VM: dist/sandbox-host --root DIR")
-})
+/// What to use instead of an option the VM doesn't take: host mode's, and old spellings.
+let vmInstead = Dictionary(uniqueKeysWithValues: ["root", "expose", "rsync", "rsync-port", "allow-read", "print-profile"].map {
+    ($0, "--\($0) is host mode's (no VM): dist/sandbox-host DIR")
+}).merging([
+    "listen": "--tailnet for this Mac's Tailscale address, --mcp-port N for the port",
+    "ssh": "SSH is always served, beside MCP: --tailnet puts it on the Tailscale address, --ssh-port N moves it",
+    "network": "--no-network",
+]) { $1 }
 
 signal(SIGPIPE, SIG_IGN)
 setvbuf(stdout, nil, _IOLBF, 0) // progress lines show up promptly in logs and pipes
 let argv = Array(CommandLine.arguments.dropFirst())
+if argv.contains("--help") || argv.contains("-h") { print(usage); exit(0) }
 
 do {
     switch argv.first {
@@ -68,18 +77,19 @@ do {
         dispatchMain()
     case "create":
         try Create.run(try Options(Array(argv.dropFirst()), command: "sandbox-vm create",
-                                   values: ["ipsw", "cpus", "memory-gb", "disk-gb", "user", "password"], elsewhere: hostOnly))
+                                   values: ["ipsw", "cpus", "memory-gb", "disk-gb", "user", "password"], elsewhere: vmInstead))
     case "ip":
-        guard argv.count == 2 else { throw ToolError("name the VM bundle") }
-        print(try Exec.address(VMBundle(path: argv[1])))
+        guard argv.count <= 2 else { throw ToolError("sandbox-vm ip takes one NAME") }
+        print(try Exec.address(VMBundle(named: argv.count == 2 ? argv[1] : nil)))
         exit(0)
     case "exec":
         try Exec.run(try Options(Array(argv.dropFirst()), command: "sandbox-vm exec",
-                                 values: ["user", "password", "host"], flags: ["root"], elsewhere: hostOnly))
+                                 values: ["vm", "user", "password", "host"], flags: ["as-root"],
+                                 elsewhere: vmInstead.merging(["root": "--as-root"]) { $1 }))
     case "run":
         try Run.run(try Options(Array(argv.dropFirst()), command: "sandbox-vm run",
-                                values: ["share", "memory-gb", "cpus", "tools", "network", "listen", "ssh", "guest-port"],
-                                flags: ["gui"], elsewhere: hostOnly))
+                                values: ["share", "memory-gb", "cpus", "tools", "mcp-port", "ssh-port", "guest-port"],
+                                flags: ["gui", "tailnet", "no-network"], elsewhere: vmInstead))
     default:
         print(usage)
         exit(argv.isEmpty || argv.first == "help" ? 0 : 64)

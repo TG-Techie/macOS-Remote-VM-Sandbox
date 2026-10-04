@@ -1,7 +1,7 @@
 import Foundation
 import SandboxKit
 
-/// `sandbox-mcp host`: shell and file tools, plus Taildrop, for one folder on this Mac, with no VM.
+/// `sandbox-host DIR`: shell and file tools, plus Taildrop, for one folder on this Mac, with no VM.
 /// The shell and files servers, and everything they run, live under macOS's kernel sandbox
 /// (sandbox-exec) with srt's profile plus GPU access (makeProfile), for compute only: no network, no
 /// git, writes only inside the folder, and reads only of it, system code, developer tools,
@@ -11,16 +11,19 @@ import SandboxKit
 /// takes no commands: this process, which listens and relays; the Taildrop server, which only moves
 /// received files into inbox/; and the monitor, which reports free disk and memory. With
 /// --expose PORT[:OUTER], a command may listen on 127.0.0.1:PORT, and this process relays OUTER
-/// (default the same) on the MCP address to it.
+/// (default the same) on the MCP address to it. Everything listens on 127.0.0.1, or with --tailnet
+/// on this Mac's Tailscale address; the default ports (MCP 8766, rsync 8873) leave the VM's 8765 free.
 /// `<root>/autostart.sh`, if present, starts at launch under the sandbox. Each launch is a new
 /// sandbox: processes left from an earlier one keep running but can't be signalled from this one.
 enum Host {
-    static let rsyncPort: UInt16 = 8873
-
     static func run(_ options: Options, selfPath: String) throws -> Never {
-        let root = try realPath(try options.require("root"))
-        let mcp = try tcpAddress(options.value("listen") ?? "127.0.0.1", defaultPort: 8765)
-        let rsync = try tcpAddress(options.value("rsync") ?? mcp.host, defaultPort: rsyncPort)
+        guard options.positional.count == 1 else {
+            throw ToolError("give the one folder to sandbox to: sandbox-host DIR [options]; see sandbox-host --help")
+        }
+        let root = try realPath((options.positional[0] as NSString).expandingTildeInPath)
+        let host = options.flag("tailnet") ? try resolveListenHost("tailscale") : "127.0.0.1"
+        let mcp = (host: host, port: try port(options, "mcp-port", default: 8766))
+        let rsync = (host: host, port: try port(options, "rsync-port", default: 8873))
         let extraReads = (options.value("allow-read") ?? "")
             .split(separator: ",").map { ($0 as NSString).expandingTildeInPath }.filter { !$0.isEmpty }
         // rsync's daemon config lives where the sandbox can read it but not write it.
@@ -44,7 +47,7 @@ enum Host {
         print("host mode (no VM): tools for this Mac's \(root), compute only")
         let exposed = exposeParts.map { (host: mcp.host, port: $0.outer) }
         for address in [mcp, rsync] + (exposed.map { [$0] } ?? []) where tcpAnswers(host: address.host, port: address.port) {
-            throw ToolError("something on this Mac already answers on \(address.host):\(address.port) (see: lsof -nP -iTCP:\(address.port) -sTCP:LISTEN); pick another port with --listen or --rsync")
+            throw ToolError("something on this Mac already answers on \(address.host):\(address.port) (see: lsof -nP -iTCP:\(address.port) -sTCP:LISTEN); pick another with --mcp-port, --rsync-port or --expose PORT:OUTER")
         }
 
         // Every server inherits this environment, so it carries nothing of the terminal that started
@@ -107,14 +110,6 @@ enum Host {
         print("MCP: ready at http://\(hostName(mcp.host)):\(mcp.port)/mcp")
         let handler = mcpHTTPHandler(server)
         acceptLoop(fd) { serveHTTP($0, handler: handler) }
-    }
-
-    /// `tailscale`, a name or an IP, with an optional `:PORT`.
-    private static func tcpAddress(_ value: String, defaultPort: UInt16) throws -> (host: String, port: UInt16) {
-        guard case .tcp(let host, let port) = try ListenAddress.parse(value.contains(":") ? value : "\(value):\(defaultPort)") else {
-            throw ToolError("expected tailscale or HOST[:PORT], got '\(value)'")
-        }
-        return (try resolveListenHost(host), port)
     }
 
     /// Runs `argv` with `socket` as its stdin and stdout (as inetd would) and this process's stderr,

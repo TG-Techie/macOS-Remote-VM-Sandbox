@@ -8,12 +8,22 @@ import SandboxKit
 // on a Mac with no VM, confined to one folder by macOS's sandbox (Host.swift).
 
 let usage = """
-usage:
-  sandbox-mcp aggregate --config SERVERS.json --listen vsock:PORT|HOST:PORT
-  sandbox-mcp shell|files|git --root PROJECT_DIR
-  sandbox-mcp relay --listen vsock:PORT --to HOST:PORT
-  sandbox-mcp host --root DIR   (or dist/sandbox-host --root DIR ...) [--listen tailscale|HOST[:PORT]] [--rsync HOST[:PORT]] [--expose PORT[:OUTER]] [--allow-read PATH,PATH] [--print-profile]
-  sandbox-mcp taildrop|monitor --root DIR
+Host mode: shell and file tools for one folder on this Mac, with no VM, sandboxed to the folder,
+for compute only. (In a VM instead: dist/sandbox-vm.)
+
+usage: dist/sandbox-host DIR [--tailnet] [--expose PORT[:OUTER]] [--mcp-port N] [--rsync-port N]
+                        [--allow-read PATH,PATH] [--print-profile]
+  DIR                 The folder: tools can read and write only inside it.
+  --tailnet           Serve on this Mac's Tailscale address. Default: 127.0.0.1, this Mac only.
+  --expose PORT       Let a command listen on 127.0.0.1:PORT inside, reachable at the same port
+                      outside (PORT:OUTER for another outside port).
+  --mcp-port N        MCP's port. Default 8766 (the VM's is 8765, so both can run).
+  --rsync-port N      rsync's port, for moving files in and out. Default 8873.
+  --allow-read PATHS  Also let commands read these paths, comma-separated.
+  --print-profile     Print the sandbox rules and exit.
+
+Inside the VM (started by install-guest.sh, not by hand): sandbox-mcp aggregate | relay |
+shell | files | git | taildrop | monitor.
 """
 let version = "0.1"
 
@@ -22,15 +32,20 @@ setvbuf(stdout, nil, _IOLBF, 0)
 // Invoked as `sandbox-host` (dist/ links that name to this binary), it is host mode itself.
 let invokedAsHost = (CommandLine.arguments[0] as NSString).lastPathComponent == "sandbox-host"
 let argv = invokedAsHost ? ["host"] + CommandLine.arguments.dropFirst() : Array(CommandLine.arguments.dropFirst())
+if argv.contains("--help") || argv.contains("-h") { print(usage); exit(0) }
 
-/// Options of VM mode, named in the error when one is given to host mode.
-let vmOnly = Dictionary(uniqueKeysWithValues: ["share", "memory-gb", "cpus", "ssh", "gui", "network", "tools", "guest-port"].map {
-    ($0, "VM mode: dist/sandbox-vm run BUNDLE --share DIR")
-})
+/// What to use instead of an option host mode doesn't take: VM mode's, and host mode's old spellings.
+let hostInstead = Dictionary(uniqueKeysWithValues: ["share", "memory-gb", "cpus", "ssh", "gui", "no-network", "tools", "guest-port", "ssh-port"].map {
+    ($0, "--\($0) is VM mode's: dist/sandbox-vm run")
+}).merging([
+    "root": "give the folder as the argument, dist/sandbox-host DIR",
+    "listen": "--tailnet for this Mac's Tailscale address, --mcp-port N for the port (default 8766)",
+    "rsync": "--rsync-port N; rsync listens where MCP does",
+]) { $1 }
 let commandOptions: [String: (values: Set<String>, flags: Set<String>)] = [
     "aggregate": (["config", "listen"], []),
     "relay": (["listen", "to"], []),
-    "host": (["root", "listen", "rsync", "expose", "allow-read"], ["print-profile"]),
+    "host": (["mcp-port", "rsync-port", "expose", "allow-read"], ["tailnet", "print-profile"]),
     "monitor": (["root"], []),
     "taildrop": (["root", "home", "tmp"], []),
     "shell": (["root"], ["no-login"]),
@@ -41,7 +56,7 @@ let commandOptions: [String: (values: Set<String>, flags: Set<String>)] = [
 do {
     let takes = commandOptions[argv.first ?? ""] ?? ([], [])
     let options = try Options(Array(argv.dropFirst()), command: argv.first == "host" ? "sandbox-host" : "sandbox-mcp \(argv.first ?? "")",
-                              values: takes.values, flags: takes.flags, elsewhere: vmOnly)
+                              values: takes.values, flags: takes.flags, elsewhere: argv.first == "host" ? hostInstead : [:])
     switch argv.first {
     case "aggregate":
         let selfPath = Bundle.main.executablePath ?? CommandLine.arguments[0]
@@ -90,6 +105,6 @@ do {
         exit(argv.isEmpty ? 0 : 64)
     }
 } catch {
-    FileHandle.standardError.write(Data("sandbox-mcp: \(error)\n".utf8))
+    FileHandle.standardError.write(Data("\(invokedAsHost ? "sandbox-host" : "sandbox-mcp"): \(error)\n".utf8))
     exit(1)
 }

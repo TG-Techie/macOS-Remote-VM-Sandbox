@@ -1,6 +1,6 @@
 #!/bin/zsh
 # Builds release binaries and assembles dist/: vmsandbox for the host, and dist/guest/, which
-# vmsandbox run shares read-only into the VM.
+# sandbox-vm run shares read-only into the VM.
 # Files are replaced by rename, never deleted and recreated, so a VM running from dist/ keeps a
 # working tools share and a running vmsandbox keeps its binary.
 set -euo pipefail

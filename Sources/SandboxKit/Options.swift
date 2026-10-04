@@ -9,12 +9,12 @@ public struct Options {
     private var flags: Set<String> = []
 
     /// `command` names the command in errors; `elsewhere` maps options this command doesn't take
-    /// to where they belong, for the error.
+    /// (another tool's, or an old spelling) to what to use instead, for the error.
     public init(_ args: [String], command: String, values takes: Set<String>, flags known: Set<String> = [],
                 elsewhere: [String: String] = [:]) throws {
         func refuse(_ name: String) -> ToolError {
             let accepted = (takes.union(known)).sorted().map { "--\($0)" }.joined(separator: ", ")
-            let hint = elsewhere[name].map { " --\(name) belongs to \($0)." } ?? ""
+            let hint = elsewhere[name].map { " Instead: \($0)." } ?? ""
             return ToolError("\(command) doesn't take --\(name).\(hint) It takes: \(accepted.isEmpty ? "no options" : accepted).")
         }
         var i = 0

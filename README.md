@@ -3,11 +3,11 @@
 macOS VM with GPU access (MLX works) that exposes shell, file and git MCP tools to an agent,
 scoped to one shared project folder. Apple silicon, macOS 26+, Xcode or CLT, ~40 GB disk.
 
-Two ways to run it, each refusing the other's options:
+Two ways to run it, each refusing the other's options (`--help` on either lists its own):
 
-- `dist/sandbox-vm run …`: in a VM (shell, files, git; `--share`, `--memory-gb`, `--ssh`).
-- `dist/sandbox-host …`: on this Mac, no VM, sandboxed to one folder, compute only (shell, files;
-  `--root`, `--expose`, `--rsync`). [Below](#no-vm-the-tools-on-this-mac-sandboxed-to-one-folder).
+- `dist/sandbox-vm run`: in a VM (shell, files, git).
+- `dist/sandbox-host DIR`: on this Mac, no VM, sandboxed to one folder, compute only (shell, files).
+  [Below](#no-vm-the-tools-on-this-mac-sandboxed-to-one-folder).
 
 ## Setup
 
@@ -32,16 +32,17 @@ scripts/finalize-mac.sh                  # base setup, shut down, snapshot to vm
 ```sh
 scripts/setup-mac.sh --open sandbox
 # or directly:
-dist/sandbox-vm run vms/sandbox.vmbundle --share vms/empty-share --gui
+dist/sandbox-vm run --share vms/empty-share --gui
 ```
 
 Every run mounts the setup scripts (`dist/guest`, read-only) at `/Volumes/My Shared Files/tools`;
-`--share` is the project, left empty for the base image.
+`--share` is the project, left empty for the base image. A VM is named by its bundle in `vms/`
+(`sandbox` when none is given).
 
 ## Run
 
 ```sh
-dist/sandbox-vm run vms/sandbox.vmbundle --share ~/path/to/project --memory-gb 12 [--gui]
+dist/sandbox-vm run --share ~/path/to/project --memory-gb 12 [--gui]   # --share remembered after
 claude mcp add --transport http vm-sandbox http://127.0.0.1:8765/mcp
 ```
 
@@ -49,19 +50,18 @@ Serve it to another Mac over Tailscale (this Mac's tailnet address, found at sta
 so your tailnet ACLs are the gate):
 
 ```sh
-dist/sandbox-vm run vms/sandbox.vmbundle --share ~/path/to/project --memory-gb 12 --listen tailscale
+dist/sandbox-vm run --memory-gb 12 --tailnet
 claude mcp add --transport http vm-sandbox http://<this-mac's-tailscale-name>:8765/mcp   # on the other Mac
 ```
 
-SSH to the guest, over vsock like MCP (works with no route to the guest). Keys only: add yours to
-`~/.ssh/authorized_keys` in the VM first.
+SSH to the guest is served beside MCP, over vsock like it (works with no route to the guest). Keys
+only: add yours to `~/.ssh/authorized_keys` in the VM first.
 
 ```sh
-dist/sandbox-vm run vms/sandbox.vmbundle --share ~/path/to/project --listen tailscale --ssh tailscale
 ssh -p 8722 admin@<this-mac's-tailscale-name>                                            # on the other Mac
 ```
 
-Options: `--cpus N`, `--network none`, `--listen HOST[:PORT]` (default 127.0.0.1:8765). Ctrl-C stops (twice forces).
+Options: `--cpus N`, `--no-network`, `--mcp-port N` (8765), `--ssh-port N` (8722). Ctrl-C stops (twice forces).
 
 ## No VM: the tools on this Mac, sandboxed to one folder
 
@@ -73,11 +73,11 @@ folder. Code and data move with rsync, to a daemon under the same sandbox.
 
 ```sh
 scripts/build.sh
-dist/sandbox-host --root ~/path/to/project --listen tailscale                # MCP 8765, rsync 8873
-dist/sandbox-host --root ~/path/to/project --listen tailscale --expose 8780  # + a server on 127.0.0.1:8780 inside, reachable at :8780
-claude mcp add --transport http vm-sandbox http://<this-mac's-tailscale-name>:8765/mcp   # on the other Mac
+dist/sandbox-host ~/path/to/project --tailnet                # MCP 8766, rsync 8873 (beside a VM's 8765)
+dist/sandbox-host ~/path/to/project --tailnet --expose 8780  # + a server on 127.0.0.1:8780 inside, reachable at :8780
+claude mcp add --transport http vm-sandbox http://<this-mac's-tailscale-name>:8766/mcp   # on the other Mac
 rsync -a ./src/ rsync://<this-mac's-tailscale-name>:8873/project/src/                  # on the other Mac
-dist/sandbox-host --root ~/path/to/project --print-profile                   # the exact sandbox rules
+dist/sandbox-host ~/path/to/project --print-profile          # the exact sandbox rules
 ```
 
 - Packages come in by rsync too: a uv cache into `.sandbox-home/.cache/uv`, then `uv sync --offline`.

@@ -19,6 +19,8 @@ struct VMBundle {
         /// and documented, not a secret: the boundary is the VM, which only this Mac can reach.
         var provision: Account?
         struct Account: Codable { var user: String; var password: String }
+        /// The project folder the VM last ran with, used when `run` isn't given --share.
+        var share: String?
     }
 
     let url: URL
@@ -27,6 +29,14 @@ struct VMBundle {
     var auxURL: URL { url.appendingPathComponent("aux.img") }
 
     init(path: String) { url = URL(fileURLWithPath: path).standardizedFileURL }
+
+    /// A VM by name, kept in the clone's vms/ (`sandbox` when none is given), or by a path to its
+    /// bundle (anything with a slash or ending in .vmbundle).
+    init(named name: String?) {
+        let name = name ?? "sandbox"
+        if name.contains("/") || name.hasSuffix(".vmbundle") { self.init(path: name); return }
+        self.init(path: cloneDirectory().appendingPathComponent("vms/\(name).vmbundle").path)
+    }
 
     func load() throws -> Config {
         guard let data = FileManager.default.contents(atPath: configURL.path) else {
@@ -40,7 +50,7 @@ struct VMBundle {
     func lock() throws {
         let fd = open(configURL.path, O_RDONLY)
         guard fd >= 0, flock(fd, LOCK_EX | LOCK_NB) == 0 else {
-            throw ToolError("\(url.path) is in use by another vmsandbox process")
+            throw ToolError("\(url.path) is in use by another sandbox-vm process")
         }
     }
 
@@ -109,12 +119,19 @@ func makeConfiguration(_ bundle: VMBundle, _ config: VMBundle.Config, shares: [S
     return c
 }
 
-/// The shares `run` and `setup` give the guest, from --share and --tools. The tools folder is
-/// read-only, so nothing in the guest can change the server it runs.
-func guestShares(_ options: Options) throws -> [Share] {
-    let project = URL(fileURLWithPath: try options.require("share")).standardizedFileURL
-    let executableDir = URL(fileURLWithPath: Bundle.main.executablePath ?? CommandLine.arguments[0]).deletingLastPathComponent()
-    let tools = URL(fileURLWithPath: options.value("tools") ?? executableDir.appendingPathComponent("guest").path)
+/// The clone this binary was built in: dist/'s parent. Run from elsewhere (a development build),
+/// the current folder.
+func cloneDirectory() -> URL {
+    let dir = URL(fileURLWithPath: Bundle.main.executablePath ?? CommandLine.arguments[0]).resolvingSymlinksInPath().deletingLastPathComponent()
+    return dir.lastPathComponent == "dist" ? dir.deletingLastPathComponent() : URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+}
+
+/// The shares `run` gives the guest: the project, and the tools folder (default dist/guest), which
+/// is read-only so nothing in the guest can change the server it runs.
+func guestShares(project projectPath: String, tools toolsPath: String?) throws -> [Share] {
+    let project = URL(fileURLWithPath: (projectPath as NSString).expandingTildeInPath).standardizedFileURL
+    let executableDir = URL(fileURLWithPath: Bundle.main.executablePath ?? CommandLine.arguments[0]).resolvingSymlinksInPath().deletingLastPathComponent()
+    let tools = URL(fileURLWithPath: toolsPath ?? executableDir.appendingPathComponent("guest").path)
     for (what, url) in [("project", project), ("guest tools", tools)] {
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue else {
@@ -125,6 +142,6 @@ func guestShares(_ options: Options) throws -> [Share] {
 }
 
 func fail(_ message: String) -> Never {
-    FileHandle.standardError.write(Data("vmsandbox: \(message)\n".utf8))
+    FileHandle.standardError.write(Data("sandbox-vm: \(message)\n".utf8))
     exit(1)
 }

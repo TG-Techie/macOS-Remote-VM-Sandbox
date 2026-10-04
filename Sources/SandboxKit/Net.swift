@@ -34,7 +34,7 @@ public func resolveListenHost(_ host: String) throws -> String {
                 return "\(addr >> 24).\(addr >> 16 & 0xFF).\(addr >> 8 & 0xFF).\(addr & 0xFF)"
             }
         }
-        throw ToolError("--listen tailscale: no Tailscale address on this Mac; is Tailscale connected?")
+        throw ToolError("--tailnet: no Tailscale address on this Mac; is Tailscale connected?")
     }
     var hints = addrinfo()
     hints.ai_family = AF_INET
@@ -77,4 +77,11 @@ extension ListenAddress {
         case .vsock(let port): port
         }
     }
+}
+
+/// A port option's value, or `fallback` when it isn't given.
+public func port(_ options: Options, _ name: String, default fallback: UInt16) throws -> UInt16 {
+    let n = try options.int(name, default: Int(fallback))
+    guard let port = UInt16(exactly: n), port > 0 else { throw ToolError("--\(name) takes a port number, got \(n)") }
+    return port
 }

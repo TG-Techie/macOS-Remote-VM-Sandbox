@@ -1,7 +1,7 @@
 #!/bin/zsh
 # Makes a freshly set-up macOS guest into a plain base image that scripts can customise with no
 # one at the screen. Run as root from the host, once Remote Login is on:
-#   vmsandbox exec BUNDLE --root guest/base-setup.sh
+#   dist/sandbox-vm exec --as-root dist/guest/base-setup.sh
 # It uses only Apple's tools and Homebrew's official installer, and it's safe to run again.
 set -euo pipefail
 USER_NAME="${VMSANDBOX_USER:-admin}"

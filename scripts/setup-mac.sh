@@ -5,7 +5,7 @@
 #   scripts/setup-mac.sh --fresh NAME [--vms DIR]       install macOS into a new VM, then open its window
 #   scripts/setup-mac.sh --open NAME [--vms DIR]        open an existing VM's window, to resume setup
 #
-# Both build and ad-hoc sign vmsandbox first. Everything stays inside this folder: the build in dist/, and the restore image, VMs and
+# Both build and ad-hoc sign sandbox-vm first. Everything stays inside this folder: the build in dist/, and the restore image, VMs and
 # snapshots in vms/ (git-ignored), unless --vms DIR says otherwise.
 # --fresh downloads the newest restore image this Mac supports (about 15-20 GB) and opens the VM's
 # window for Setup Assistant (see the README). --open reopens an existing VM without reinstalling.
@@ -58,22 +58,22 @@ else
     # then delete the bundle and run this again.
     echo "$bundle is already installed; opening its window"
   else
-    url=$(dist/vmsandbox ipsw-url | sed 's/.*: //')
+    url=$(dist/sandbox-vm ipsw-url | sed 's/.*: //')
     ipsw=$vms/${url:t}
     if [[ ! -f $ipsw ]]; then
       curl -fL -C - -o "$ipsw.partial" "$url"
       mv -f "$ipsw.partial" "$ipsw"
     fi
-    dist/vmsandbox create "$bundle" --ipsw "$ipsw" --memory-gb $setup_gb
+    dist/sandbox-vm create "$bundle" --ipsw "$ipsw" --memory-gb $setup_gb
   fi
   echo "Opening the VM's window. In Setup Assistant create user admin, password admin. Then in the"
   echo "VM's Terminal run:  zsh \"/Volumes/My Shared Files/tools/install-guest.sh\""
   echo "Leave the VM running, and in another terminal in this folder run:  scripts/finalize-mac.sh $fresh"
   mkdir -p "$vms/empty-share"
-  exec dist/vmsandbox run "$bundle" --share "$vms/empty-share" --memory-gb $setup_gb --gui
+  exec dist/sandbox-vm run "$bundle" --share "$vms/empty-share" --memory-gb $setup_gb --gui
 fi
 
 echo
 echo "Ready. Run it with your project shared and the RAM you want, for example:"
-echo "  dist/sandbox-vm run $bundle --share /path/to/project --memory-gb 4"
-echo "MCP is then at http://127.0.0.1:8765/mcp on this Mac only."
+echo "  dist/sandbox-vm run ${${bundle:t}%.vmbundle} --share /path/to/project --memory-gb 4"
+echo "MCP is then at http://127.0.0.1:8765/mcp on this Mac only (--tailnet for your tailnet)."

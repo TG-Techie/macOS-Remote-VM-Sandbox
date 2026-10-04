@@ -57,7 +57,7 @@ guest 'chmod 750 "$HOME"' >/dev/null
 
 step "shutting the guest down"
 guest "printf '%s\\n' '$password' | sudo -S -p '' shutdown -h +0" >/dev/null 2>&1 || true
-# vmsandbox run holds a lock on config.json while the VM runs; -k keeps lockf from deleting it.
+# sandbox-vm run holds a lock on config.json while the VM runs; -k keeps lockf from deleting it.
 for i in {1..60}; do
   lockf -k -t 0 "$bundle/config.json" true 2>/dev/null && break
   sleep 2
@@ -70,4 +70,4 @@ snapshot=$vms/$name-base-$(date +%F).vmbundle
 step "snapshot"
 cp -c -R "$bundle" "$snapshot"
 echo "Done. Snapshot: $snapshot"
-echo "Boot it: dist/sandbox-vm run $bundle --share /path/to/project --memory-gb 12"
+echo "Boot it: dist/sandbox-vm run $name --share /path/to/project --memory-gb 12"

@@ -2,18 +2,19 @@ import Foundation
 import SandboxKit
 import Virtualization
 
-/// `vmsandbox create`: a new VM bundle with macOS installed from a local restore image.
+/// `sandbox-vm create [NAME]`: a new VM with macOS installed, from --ipsw or else the newest restore
+/// image this Mac supports, downloaded into the clone's vms/ (kept there for the next create).
 enum Create {
     private static var installer: VZMacOSInstaller?
     private static var progress: NSKeyValueObservation?
 
     static func run(_ options: Options) throws -> Never {
-        guard let path = options.positional.first else { throw ToolError("name the bundle to create") }
-        let bundle = VMBundle(path: path)
+        guard options.positional.count <= 1 else { throw ToolError("sandbox-vm create takes one NAME, got: \(options.positional.joined(separator: " "))") }
+        let bundle = VMBundle(named: options.positional.first)
         guard !FileManager.default.fileExists(atPath: bundle.url.path) else {
             throw ToolError("\(bundle.url.path) already exists")
         }
-        let ipsw = URL(fileURLWithPath: try options.require("ipsw"))
+        let ipsw = try options.value("ipsw").map { URL(fileURLWithPath: $0) } ?? downloadLatest(into: bundle.url.deletingLastPathComponent())
         let cpus = try options.int("cpus", default: ProcessInfo.processInfo.processorCount)
         let physicalGiB = Int(ProcessInfo.processInfo.physicalMemory >> 30)
         let memoryGiB = try options.int("memory-gb", default: max(physicalGiB - 8, 8))
@@ -32,6 +33,29 @@ enum Create {
             }
         }
         dispatchMain()
+    }
+
+    /// The newest restore image this Mac supports, downloaded once (resuming a partial download)
+    /// into `folder` and reused after.
+    private static func downloadLatest(into folder: URL) throws -> URL {
+        var found: Result<VZMacOSRestoreImage, Error>?
+        let done = DispatchSemaphore(value: 0)
+        VZMacOSRestoreImage.fetchLatestSupported { found = $0; done.signal() }
+        done.wait()
+        guard let image = try found?.get() else { throw ToolError("couldn't fetch the restore image catalog") }
+        let ipsw = folder.appendingPathComponent(image.url.lastPathComponent)
+        if FileManager.default.fileExists(atPath: ipsw.path) { print("using \(ipsw.path)"); return ipsw }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let partial = ipsw.path + ".partial"
+        print("downloading macOS \(image.operatingSystemVersion.string) (\(image.buildVersion)) to \(ipsw.path)")
+        let curl = Process()
+        curl.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
+        curl.arguments = ["-fL", "-C", "-", "-o", partial, image.url.absoluteString]
+        try curl.run()
+        curl.waitUntilExit()
+        guard curl.terminationStatus == 0 else { throw ToolError("the download failed (curl exited \(curl.terminationStatus)); run create again to resume it") }
+        try FileManager.default.moveItem(atPath: partial, toPath: ipsw.path)
+        return ipsw
     }
 
     private static func install(_ bundle: VMBundle, image: VZMacOSRestoreImage, ipsw: URL,
@@ -73,7 +97,7 @@ enum Create {
         installer.install { result in
             switch result {
             case .success where config.provision != nil:
-                print("installed. The first vmsandbox run creates the account \(account.user) with automatic login and SSH, through Apple's guest provisioning.")
+                print("installed. The first sandbox-vm run creates the account \(account.user) with automatic login and SSH, through Apple's guest provisioning.")
                 exit(0)
             case .success:
                 print("installed macOS into \(bundle.url.path)")

@@ -2,8 +2,8 @@
 # Run once inside the guest, in Terminal, as the user the guest logs in as:
 #   zsh "/Volumes/My Shared Files/tools/install-guest.sh" [PORT]
 # Installs LaunchAgents that run at login: the MCP aggregator on vsock PORT (default 8765, which
-# must match vmsandbox run --guest-port), a relay from vsock 8722 to this guest's sshd, which
-# vmsandbox run --ssh forwards to, and a half-hourly walk that releases host disk space (below). It also turns on Remote Login with keys only: put a key in
+# must match sandbox-vm run --guest-port), a relay from vsock 8722 to this guest's sshd, which
+# sandbox-vm run forwards SSH to, and a half-hourly walk that releases host disk space (below). It also turns on Remote Login with keys only: put a key in
 # ~/.ssh/authorized_keys to log in (the password is a known default, so it never logs in by SSH).
 set -euo pipefail
 
@@ -12,8 +12,8 @@ PROJECT="/Volumes/My Shared Files/project"
 PORT="${1:-8765}"
 LOG="$HOME/Library/Logs/vm-sandbox-mcp.log"
 
-[[ -x "$TOOLS/sandbox-mcp" ]] || { echo "$TOOLS/sandbox-mcp is missing: start the VM with vmsandbox run, from dist/."; exit 1; }
-[[ -d "$PROJECT" ]] || { echo "$PROJECT is missing: start the VM with vmsandbox run --share PROJECT_DIR."; exit 1; }
+[[ -x "$TOOLS/sandbox-mcp" ]] || { echo "$TOOLS/sandbox-mcp is missing: start the VM with dist/sandbox-vm run."; exit 1; }
+[[ -d "$PROJECT" ]] || { echo "$PROJECT is missing: start the VM with dist/sandbox-vm run --share PROJECT_DIR."; exit 1; }
 
 # The aggregator needs nothing else installed. The git tools need the Command Line Tools,
 # which base-setup.sh installs, so their absence is only a warning here.

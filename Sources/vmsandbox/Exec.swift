@@ -1,7 +1,7 @@
 import Foundation
 import SandboxKit
 
-/// `vmsandbox ip` and `vmsandbox exec`: reaching a running guest over SSH on its private NAT
+/// `sandbox-vm ip` and `sandbox-vm exec`: reaching a running guest over SSH on its private NAT
 /// network, so scripts can customise a VM with no one at its screen. The guest account's
 /// password is fixed and documented (admin/admin by default, Tart's convention). It isn't a
 /// secret: the boundary is the VM, which only this Mac can reach.
@@ -29,19 +29,19 @@ enum Exec {
         return ip
     }
 
-    /// `exec BUNDLE [--root] [--user U --password P] [--host IP] SCRIPT|-`: runs a zsh script in the guest,
-    /// streaming its output, and exits with its status.
+    /// `exec SCRIPT|- [--vm NAME] [--as-root] [--user U --password P] [--host IP]`: runs a zsh script
+    /// in the guest, streaming its output, and exits with its status.
     static func run(_ options: Options) throws -> Never {
-        guard options.positional.count == 2 else { throw ToolError("usage: vmsandbox exec BUNDLE [--root] SCRIPT|-") }
-        let bundle = VMBundle(path: options.positional[0])
+        guard options.positional.count == 1 else { throw ToolError("usage: sandbox-vm exec SCRIPT|- [--vm NAME] [--as-root]") }
+        let bundle = VMBundle(named: options.value("vm"))
         let user = options.value("user") ?? "admin"
         let password = options.value("password") ?? "admin"
         guard !password.contains("'") else { throw ToolError("the password can't contain a single quote") }
-        let script = options.positional[1]
+        let script = options.positional[0]
         let input = script == "-" ? FileHandle.standardInput : try FileHandle(forReadingFrom: URL(fileURLWithPath: script))
 
         // As root, sudo first validates with the password, then runs the script from stdin.
-        let remote = options.flag("root")
+        let remote = options.flag("as-root")
             ? "printf '%s\\n' '\(password)' | sudo -S -v -p '' && sudo -n /bin/zsh -s"
             : "/bin/zsh -s"
         let host = try options.value("host") ?? address(bundle)
