@@ -61,8 +61,9 @@ scripts/setup-mac.sh --from sandbox.tar.gz              # on the other Mac
 # Is the guest agent up?
 curl -s -X POST http://127.0.0.1:8765/mcp -d '{"jsonrpc":"2.0","id":1,"method":"ping"}'
 
-# No internet in the guest: this should say bridgeN; if not (VPN/Tailscale), re-point it
-route -n get 192.168.64.2 | grep interface
+# No internet in the guest: a Tailscale exit node reroutes the VM's subnet off its bridge
+# (tailscale/tailscale#18653, open). Set Exit Node to None, then re-point the route:
+route -n get 192.168.64.2 | grep interface      # should say bridgeN
 sudo sh -c 'route -n delete 192.168.64.0/24; route -n add -net 192.168.64.0/24 -interface bridge100'
 ```
 

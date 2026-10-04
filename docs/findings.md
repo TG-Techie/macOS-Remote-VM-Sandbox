@@ -34,8 +34,11 @@ Run on an Apple silicon test Mac on macOS 26, with a macOS 26.6.2 guest at 4 GiB
     address on the VM network (192.168.64.1, macOS's default).
   - The guest's home folder was found world-writable (777), cause unknown, and sshd refused
     keys until it was set to 750.
-  - The test Mac's own network setup cut the guest off from the internet and from the host's
-    NAT routing; binding to the VM's bridge worked around the latter. MCP over vsock is
+  - A Tailscale exit node cuts the guest off from the internet and from the host: it reroutes
+    the VM's subnet (192.168.64.0/24) to the LAN router, or into the tunnel without LAN access,
+    over the bridge's own route (tailscale/tailscale#18653, open as of 2026-10-04). Seen on two
+    Macs. With the exit node off and the bridge route restored, the guest pings 8.8.8.8; turning
+    the exit node back on breaks it again. Binding to the VM's bridge reaches the guest regardless. MCP over vsock is
     unaffected.
 - **Not yet:**
   - Copying a VM to another Mac (`scripts/pack.sh` and `scripts/setup-mac.sh --from`).
