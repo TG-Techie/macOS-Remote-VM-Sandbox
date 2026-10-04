@@ -116,7 +116,7 @@ sudo sh -c 'route -n delete 192.168.64.0/24; route -n add -net 192.168.64.0/24 -
 
 # Disk space vanishing on the host: files the guest opened through the share keep their space after
 # the host deletes them, while the guest keeps their vnodes. Don't rotate shared files the guest reads;
-# copy them in. To release what's held, walk many files in the guest (recycles its vnode table):
+# copy them in. install-guest.sh runs a release walk every 30 min; to run one now, in the guest:
 find /System/Library /usr /Library /Applications -type f | wc -l                  # in the guest
 ```
 

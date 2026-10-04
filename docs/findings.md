@@ -49,7 +49,8 @@ Run on an Apple silicon test Mac on macOS 26, with a macOS 26.6.2 guest at 4 GiB
     read-only walk of many files in the guest (`find /System/Library /usr /Library /Applications
     -type f | wc -l`, 366,035 files, 17 s) recycled it, and the host freed 18.5 GiB. So don't rotate
     files on the host that the guest reads through the share; copy them in (rsync over the
-    network), or walk files in the guest to release what's held.
+    network), or walk files in the guest to release what's held; install-guest.sh installs a walk
+    that runs every 30 minutes.
 - **Not yet:**
   - Copying a VM to another Mac (`scripts/pack.sh` and `scripts/setup-mac.sh --from`).
   - Sharing an iCloud folder with evicted files.

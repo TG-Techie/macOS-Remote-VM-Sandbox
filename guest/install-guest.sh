@@ -2,8 +2,8 @@
 # Run once inside the guest, in Terminal, as the user the guest logs in as:
 #   zsh "/Volumes/My Shared Files/tools/install-guest.sh" [PORT]
 # Installs LaunchAgents that run at login: the MCP aggregator on vsock PORT (default 8765, which
-# must match vmsandbox run --guest-port), and a relay from vsock 8722 to this guest's sshd, which
-# vmsandbox run --ssh forwards to. It also turns on Remote Login with keys only: put a key in
+# must match vmsandbox run --guest-port), a relay from vsock 8722 to this guest's sshd, which
+# vmsandbox run --ssh forwards to, and a half-hourly walk that releases host disk space (below). It also turns on Remote Login with keys only: put a key in
 # ~/.ssh/authorized_keys to log in (the password is a known default, so it never logs in by SSH).
 set -euo pipefail
 
@@ -22,22 +22,30 @@ if ! xcode-select -p >/dev/null 2>&1; then
 fi
 
 mkdir -p "$HOME/Library/LaunchAgents" "${LOG:h}"
-# agent LABEL ARGS...: installs a LaunchAgent running sandbox-mcp ARGS at login, and (re)loads it
-# only if its settings changed or it isn't running. So an agent can run this script through the MCP
-# server without restarting the server under its own call.
+# agent LABEL WHEN PROGRAM ARGS...: installs a LaunchAgent running PROGRAM ARGS, WHEN being
+# "always" (at login, restarted if it exits) or "every:SECONDS", and (re)loads it only if its
+# settings changed or it isn't loaded. So an agent can run this script through the MCP server
+# without restarting the server under its own call.
 agent() {
-  local label=$1 plist="$HOME/Library/LaunchAgents/$1.plist" new arg; shift
+  local label=$1 when=$2 plist="$HOME/Library/LaunchAgents/$1.plist" new arg; shift 2
   new=$(mktemp)
   {
     print '<?xml version="1.0" encoding="UTF-8"?>'
     print '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
     print "<plist version=\"1.0\"><dict>"
     print "  <key>Label</key><string>$label</string>"
-    print "  <key>ProgramArguments</key><array><string>$TOOLS/sandbox-mcp</string>"
+    print "  <key>ProgramArguments</key><array>"
     for arg in "$@"; do print "    <string>$arg</string>"; done
     print "  </array>"
-    print "  <key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>10</integer>"
-    print "  <key>StandardOutPath</key><string>$LOG</string><key>StandardErrorPath</key><string>$LOG</string>"
+    case $when in
+      always)
+        print "  <key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>10</integer>"
+        print "  <key>StandardOutPath</key><string>$LOG</string><key>StandardErrorPath</key><string>$LOG</string>" ;;
+      every:*)
+        print "  <key>StartInterval</key><integer>${when#every:}</integer><key>LowPriorityIO</key><true/><key>Nice</key><integer>10</integer>"
+        print "  <key>StandardOutPath</key><string>/dev/null</string><key>StandardErrorPath</key><string>/dev/null</string>" ;;
+      *) echo "agent $label: WHEN must be always or every:SECONDS, not $when" >&2; exit 1 ;;
+    esac
     print "</dict></plist>"
   } > "$new"
   if [[ -f $plist ]] && [[ $(plutil -convert json -o - "$plist") == $(plutil -convert json -o - "$new") ]] \
@@ -49,8 +57,12 @@ agent() {
   launchctl bootstrap "gui/$(id -u)" "$plist" \
     || echo "Couldn't load $label now (an SSH session can't always reach the login session); it starts at the next login."
 }
-agent local.vm-sandbox.mcp aggregate --config "$TOOLS/servers.json" --listen "vsock:$PORT"
-agent local.vm-sandbox.ssh relay --listen vsock:8722 --to 127.0.0.1:22
+agent local.vm-sandbox.mcp always "$TOOLS/sandbox-mcp" aggregate --config "$TOOLS/servers.json" --listen "vsock:$PORT"
+agent local.vm-sandbox.ssh always "$TOOLS/sandbox-mcp" relay --listen vsock:8722 --to 127.0.0.1:22
+# A file this guest opened through the share keeps its space on the host after the host deletes it,
+# while the guest holds its vnode (docs/findings.md). Reading through many of the guest's own files
+# recycles the vnode table and lets the host free it. Read-only, low priority, about 20 s.
+agent local.vm-sandbox.release every:1800 /usr/bin/find /System/Library /usr /Library /Applications -type f -name .vm-sandbox-none
 
 # Remote Login, keys only. Needs the passwordless sudo that base-setup.sh sets up.
 if sudo -n true 2>/dev/null; then
@@ -65,4 +77,5 @@ else
 fi
 sleep 1
 tail -n 5 "$LOG" || true
-echo "Installed. The aggregator and the SSH relay start at every login; their log is $LOG."
+echo "Installed. The aggregator and the SSH relay start at every login, and the release walk runs every"
+echo "30 minutes; their log is $LOG."
