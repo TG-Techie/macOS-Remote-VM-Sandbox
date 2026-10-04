@@ -1,0 +1,10 @@
+.build/
+dist/
+*.vmbundle/
+vms/
+.swiftpm/
+# Local agent instructions and harness config; not part of the repo.
+AGENTS.md
+CLAUDE.md
+.mcp.json
+.claude/

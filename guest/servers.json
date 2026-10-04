@@ -1,0 +1,8 @@
+{
+  "instructions": "These tools run inside a macOS virtual machine with access to the host's GPU through Metal. The project folder is shared from the host at /Volumes/My Shared Files/project: file paths and shell working directories are relative to it, and changes there are changes to the host's copy. Everything else in the VM is the VM's own. Use shell_job_start for anything longer than a few minutes, such as a training run, and sandbox_status if a tool seems missing.",
+  "servers": [
+    { "name": "shell", "command": "${SELF}", "args": ["shell", "--root", "/Volumes/My Shared Files/project"] },
+    { "name": "files", "command": "${SELF}", "args": ["files", "--root", "/Volumes/My Shared Files/project"] },
+    { "name": "git", "command": "${SELF}", "args": ["git", "--root", "/Volumes/My Shared Files/project"] }
+  ]
+}
