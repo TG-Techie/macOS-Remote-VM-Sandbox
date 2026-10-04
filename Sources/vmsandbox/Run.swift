@@ -27,7 +27,7 @@ enum Run {
         let shares = try guestShares(options)
         let network = options.value("network") ?? "nat"
         guard ["nat", "none"].contains(network) else { throw ToolError("--network is nat or none") }
-        guard case .tcp(let listenHost, let listenPort) = try ListenAddress.parse(options.value("listen") ?? "127.0.0.1:8765") else {
+        guard case .tcp(let listenHost, let listenPort) = try ListenAddress.parse(listenText(options.value("listen"))) else {
             throw ToolError("--listen takes HOST:PORT on the host")
         }
         let listen = ListenAddress.tcp(host: try resolveListenHost(listenHost), port: listenPort)
@@ -167,13 +167,19 @@ extension ListenAddress {
     }
 }
 
-/// An IPv4 address to bind for `--listen`'s HOST: an address as given; `tailnet` for this Mac's
+/// `--listen` as HOST:PORT. Default 127.0.0.1:8765; a bare HOST gets port 8765.
+func listenText(_ value: String?) -> String {
+    guard let value else { return "127.0.0.1:8765" }
+    return value.contains(":") ? value : "\(value):8765"
+}
+
+/// An IPv4 address to bind for `--listen`'s HOST: an address as given; `tailscale` for this Mac's
 /// Tailscale address (the interface holding one in 100.64.0.0/10, Tailscale's range); or a host
 /// name, such as this Mac's MagicDNS name, resolved to IPv4.
 func resolveListenHost(_ host: String) throws -> String {
     var probe = in_addr()
     if inet_pton(AF_INET, host, &probe) == 1 { return host }
-    if host == "tailnet" {
+    if host == "tailscale" {
         var list: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&list) == 0 else { throw ToolError("couldn't list this Mac's network interfaces") }
         defer { freeifaddrs(list) }
@@ -186,7 +192,7 @@ func resolveListenHost(_ host: String) throws -> String {
                 return "\(addr >> 24).\(addr >> 16 & 0xFF).\(addr >> 8 & 0xFF).\(addr & 0xFF)"
             }
         }
-        throw ToolError("--listen tailnet: no Tailscale address on this Mac; is Tailscale connected?")
+        throw ToolError("--listen tailscale: no Tailscale address on this Mac; is Tailscale connected?")
     }
     var hints = addrinfo()
     hints.ai_family = AF_INET

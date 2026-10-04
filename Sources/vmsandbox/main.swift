@@ -21,7 +21,7 @@ usage:
       Run a zsh script in a running VM over SSH (account admin/admin by default), as root
       with --root. Needs Remote Login on in the guest.
   vmsandbox run BUNDLE --share PROJECT_DIR [--memory-gb N] [--cpus N] [--tools DIR] [--gui]
-                [--network nat|none] [--listen HOST:PORT|tailnet:PORT] [--guest-port N]
+                [--network nat|none] [--listen tailscale|HOST[:PORT]] [--guest-port N]
       Boot the VM. The guest sees PROJECT_DIR read-write at /Volumes/My Shared Files/project
       and DIR (default: guest/ beside this binary) read-only at .../tools. MCP is forwarded
       from http://HOST:PORT/mcp (default 127.0.0.1:8765) to guest vsock port N (default 8765).
