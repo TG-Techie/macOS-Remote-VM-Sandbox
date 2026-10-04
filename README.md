@@ -45,6 +45,13 @@ cp -c -R vms/sandbox.vmbundle vms/sandbox-snap.vmbundle                         
 rm -rf vms/sandbox.vmbundle && cp -c -R vms/sandbox-snap.vmbundle vms/sandbox.vmbundle    # restore
 ```
 
+## Move a VM to another Mac (untested)
+
+```sh
+scripts/pack.sh vms/sandbox.vmbundle sandbox.tar.gz     # on this Mac, VM stopped
+scripts/setup-mac.sh --from sandbox.tar.gz              # on the other Mac
+```
+
 ## Troubleshooting
 
 ```sh
