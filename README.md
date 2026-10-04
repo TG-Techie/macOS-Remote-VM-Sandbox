@@ -59,25 +59,26 @@ Options: `--cpus N`, `--network none`, `--listen HOST[:PORT]` (default 127.0.0.1
 
 ## No VM: the tools on this Mac, sandboxed to one folder
 
-The same MCP tools (shell, files, git, Taildrop) for one folder, with no VM. Shell, files and git run
-under macOS's sandbox: no writes outside the folder, no reads of `/Users` or `/Volumes` beyond it,
-no listening ports; the GPU works (MLX at full speed). `HOME` and `TMPDIR` point inside the folder.
+Shell and file tools (plus Taildrop) for one folder, with no VM, under macOS's sandbox: no network,
+no git, no writes outside the folder, no reads of `/Users` or `/Volumes` beyond it; the GPU works
+(MLX at full speed). `HOME` and `TMPDIR` point inside the folder. Code and data move with rsync, to
+a daemon that runs under the same sandbox.
 
 ```sh
 scripts/build.sh
-dist/sandbox-mcp host --root ~/path/to/project --listen tailscale
+dist/sandbox-mcp host --root ~/path/to/project --listen tailscale       # MCP on 8765, rsync on 8873
 claude mcp add --transport http vm-sandbox http://<this-mac's-tailscale-name>:8765/mcp   # on the other Mac
-dist/sandbox-mcp host --root ~/path/to/project --print-profile     # the exact sandbox rules
+rsync -a ./src/ rsync://<this-mac's-tailscale-name>:8873/project/src/                  # on the other Mac
+dist/sandbox-mcp host --root ~/path/to/project --print-profile           # the exact sandbox rules
 ```
 
-uv works as is: it downloads its own Python and cache into the folder (`.sandbox-home`, about 220 MB
-with MLX). To reuse ones outside it, make them readable: `--allow-read ~/.local/share/uv/python`
-(comma-separated for several).
-
-`taildrop_get` moves files sent to this Mac with Taildrop into the folder's `inbox/`. Add `.sandbox-home/`
-and `.sandbox-tmp/` to the project's `.gitignore`. The profile is
-[sandbox-runtime](https://github.com/anthropics/sandbox-runtime)'s baseline plus GPU access, outbound
-network (unfiltered) and the folder; see `Sources/sandbox-mcp/Host.swift`.
+With no network, packages come in by rsync too: a uv cache into `.sandbox-home/.cache/uv`, then
+`uv sync --offline`. Python is one installed outside `/Users` (Homebrew's), or make one readable with
+`--allow-read ~/.local/share/uv/python` (comma-separated for several). `taildrop_get` moves files
+sent with Taildrop into `inbox/`. Add `.sandbox-home/` and `.sandbox-tmp/` to the project's
+`.gitignore`. Neither port has auth of its own; your tailnet ACLs are the gate. The profile is
+[sandbox-runtime](https://github.com/anthropics/sandbox-runtime)'s baseline plus GPU access and the
+folder; see `Sources/sandbox-mcp/Host.swift`.
 
 ## Snapshots (VM stopped)
 
