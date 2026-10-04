@@ -22,9 +22,12 @@ if ! xcode-select -p >/dev/null 2>&1; then
 fi
 
 mkdir -p "$HOME/Library/LaunchAgents" "${LOG:h}"
-# agent LABEL ARGS...: installs and (re)loads a LaunchAgent running sandbox-mcp ARGS at login.
+# agent LABEL ARGS...: installs a LaunchAgent running sandbox-mcp ARGS at login, and (re)loads it
+# only if its settings changed or it isn't running. So an agent can run this script through the MCP
+# server without restarting the server under its own call.
 agent() {
-  local label=$1 plist="$HOME/Library/LaunchAgents/$1.plist" arg; shift
+  local label=$1 plist="$HOME/Library/LaunchAgents/$1.plist" new arg; shift
+  new=$(mktemp)
   {
     print '<?xml version="1.0" encoding="UTF-8"?>'
     print '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
@@ -36,7 +39,12 @@ agent() {
     print "  <key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>10</integer>"
     print "  <key>StandardOutPath</key><string>$LOG</string><key>StandardErrorPath</key><string>$LOG</string>"
     print "</dict></plist>"
-  } > "$plist"
+  } > "$new"
+  if [[ -f $plist ]] && [[ $(plutil -convert json -o - "$plist") == $(plutil -convert json -o - "$new") ]] \
+      && launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1; then
+    rm -f "$new"; echo "$label: unchanged and running"; return
+  fi
+  mv -f "$new" "$plist"
   launchctl bootout "gui/$(id -u)" "$plist" 2>/dev/null || true
   launchctl bootstrap "gui/$(id -u)" "$plist" \
     || echo "Couldn't load $label now (an SSH session can't always reach the login session); it starts at the next login."

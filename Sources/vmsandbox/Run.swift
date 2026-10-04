@@ -87,7 +87,7 @@ enum Run {
                         print("MCP: the guest's agent hasn't answered after 2 minutes. If this VM is new, run in its Terminal:")
                         print("  zsh \"/Volumes/My Shared Files/tools/install-guest.sh\"")
                     }, ready: {
-                        print("MCP: ready at http://\(listen.hostPort)/mcp")
+                        print("MCP: ready at http://\(hostName(listen.host)):\(listen.port)/mcp")
                     })
                 } catch {
                     fail("couldn't listen on \(listen): \(error)")
@@ -97,7 +97,7 @@ enum Run {
                         let forwarder = try Forwarder(device: socket, guestPort: 8722, listen: ssh)
                         forwarder.start()
                         self.sshForwarder = forwarder
-                        print("SSH: ssh -p \(ssh.port) admin@\(ssh.host) (key login; the guest relays to its sshd)")
+                        print("SSH: ssh -p \(ssh.port) admin@\(hostName(ssh.host)) (keys only)")
                     } catch {
                         fail("couldn't listen on \(ssh) for SSH: \(error)")
                     }
@@ -231,4 +231,23 @@ func resolveListenHost(_ host: String) throws -> String {
     var sin = sa.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee.sin_addr }
     inet_ntop(AF_INET, &sin, &buffer, socklen_t(INET_ADDRSTRLEN))
     return String(cString: buffer)
+}
+
+/// The name an IPv4 address reverse-resolves to, such as this Mac's MagicDNS name for its Tailscale
+/// address, without the trailing dot; the address itself if it has none.
+func hostName(_ address: String) -> String {
+    guard address != "127.0.0.1" else { return address }
+    var sin = sockaddr_in()
+    sin.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+    sin.sin_family = sa_family_t(AF_INET)
+    guard inet_pton(AF_INET, address, &sin.sin_addr) == 1 else { return address }
+    var name = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+    let rc = withUnsafePointer(to: &sin) {
+        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+            getnameinfo($0, socklen_t(MemoryLayout<sockaddr_in>.size), &name, socklen_t(name.count), nil, 0, NI_NAMEREQD)
+        }
+    }
+    guard rc == 0 else { return address }
+    let found = String(cString: name)
+    return found.hasSuffix(".") ? String(found.dropLast()) : found
 }
