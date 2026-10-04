@@ -6,8 +6,15 @@ import SandboxKit
 final class TaildropServer {
     private let inbox: URL
 
-    init(root: String) throws {
+    private let home: String?
+    private let temp: String?
+
+    /// `home` and `temp`: the real HOME and TMPDIR, when this runs beside a host sandbox whose own
+    /// point inside the folder.
+    init(root: String, home: String? = nil, temp: String? = nil) throws {
         inbox = URL(fileURLWithPath: root).appendingPathComponent("inbox")
+        self.home = home
+        self.temp = temp
     }
 
     var tools: [Tool] {
@@ -28,7 +35,7 @@ final class TaildropServer {
         let dir = open(inbox.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
         guard dir >= 0 else { throw ToolError("inbox/ isn't a plain folder (a symlink?); refusing to move files into it") }
         defer { close(dir) }
-        let realTemp = ProcessInfo.processInfo.environment["VMSANDBOX_REAL_TMPDIR"].map { URL(fileURLWithPath: $0) } ?? FileManager.default.temporaryDirectory
+        let realTemp = temp.map { URL(fileURLWithPath: $0) } ?? FileManager.default.temporaryDirectory
         let staging = realTemp.appendingPathComponent("vm-sandbox-taildrop-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: false)
         defer { try? FileManager.default.removeItem(at: staging) }
@@ -37,8 +44,8 @@ final class TaildropServer {
         process.executableURL = URL(fileURLWithPath: cli)
         process.arguments = ["file", "get", "--conflict=rename", "--verbose", staging.path]
         var env = ProcessInfo.processInfo.environment
-        if let home = env["VMSANDBOX_REAL_HOME"] { env["HOME"] = home }
-        if let temp = env["VMSANDBOX_REAL_TMPDIR"] { env["TMPDIR"] = temp }
+        if let home { env["HOME"] = home }
+        if let temp { env["TMPDIR"] = temp }
         process.environment = env
         let output = Pipe()
         process.standardOutput = output

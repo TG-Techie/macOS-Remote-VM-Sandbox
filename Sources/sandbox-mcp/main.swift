@@ -12,7 +12,7 @@ usage:
   sandbox-mcp aggregate --config SERVERS.json --listen vsock:PORT|HOST:PORT
   sandbox-mcp shell|files|git --root PROJECT_DIR
   sandbox-mcp relay --listen vsock:PORT --to HOST:PORT
-  sandbox-mcp host --root DIR [--listen tailscale|HOST[:PORT]] [--allow-read PATH,PATH] [--print-profile]
+  sandbox-mcp host --root DIR [--listen tailscale|HOST[:PORT]] [--rsync HOST[:PORT]] [--expose PORT[:OUTER]] [--allow-read PATH,PATH] [--print-profile]
   sandbox-mcp taildrop --root DIR
 """
 let version = "0.1"
@@ -51,7 +51,7 @@ do {
         try Host.run(options, selfPath: Bundle.main.executablePath ?? CommandLine.arguments[0])
     case "taildrop":
         serveStdio(MCPServer(name: "vm-sandbox-taildrop", version: version,
-                             provider: LocalTools(try TaildropServer(root: try options.require("root")).tools)))
+                             provider: LocalTools(try TaildropServer(root: try options.require("root"), home: options.value("home"), temp: options.value("tmp")).tools)))
     case "shell", "files", "git":
         let root = try options.require("root")
         let tools: [Tool]

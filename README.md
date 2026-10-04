@@ -59,26 +59,34 @@ Options: `--cpus N`, `--network none`, `--listen HOST[:PORT]` (default 127.0.0.1
 
 ## No VM: the tools on this Mac, sandboxed to one folder
 
-Shell and file tools (plus Taildrop) for one folder, with no VM, under macOS's sandbox: no network,
-no git, no writes outside the folder, no reads of `/Users` or `/Volumes` beyond it; the GPU works
-(MLX at full speed). `HOME` and `TMPDIR` point inside the folder. Code and data move with rsync, to
-a daemon that runs under the same sandbox.
+Shell and file tools (plus Taildrop) for one folder, with no VM, under macOS's sandbox, for compute
+only: no network, no git, no writes outside the folder, and no reads beyond it except system code,
+developer tools and Homebrew's software. The GPU works (MLX, including kernels compiled at run
+time). Commands get only `PATH`, `HOME`, `TMPDIR` and `LANG`; `HOME` and `TMPDIR` point inside the
+folder. Code and data move with rsync, to a daemon under the same sandbox.
 
 ```sh
 scripts/build.sh
-dist/sandbox-mcp host --root ~/path/to/project --listen tailscale       # MCP on 8765, rsync on 8873
+dist/sandbox-mcp host --root ~/path/to/project --listen tailscale                # MCP 8765, rsync 8873
+dist/sandbox-mcp host --root ~/path/to/project --listen tailscale --expose 8780  # + a server on 127.0.0.1:8780 inside, reachable at :8780
 claude mcp add --transport http vm-sandbox http://<this-mac's-tailscale-name>:8765/mcp   # on the other Mac
 rsync -a ./src/ rsync://<this-mac's-tailscale-name>:8873/project/src/                  # on the other Mac
-dist/sandbox-mcp host --root ~/path/to/project --print-profile           # the exact sandbox rules
+dist/sandbox-mcp host --root ~/path/to/project --print-profile                   # the exact sandbox rules
 ```
 
-With no network, packages come in by rsync too: a uv cache into `.sandbox-home/.cache/uv`, then
-`uv sync --offline`. Python is one installed outside `/Users` (Homebrew's), or make one readable with
-`--allow-read ~/.local/share/uv/python` (comma-separated for several). `taildrop_get` moves files
-sent with Taildrop into `inbox/`. Add `.sandbox-home/` and `.sandbox-tmp/` to the project's
-`.gitignore`. Neither port has auth of its own; your tailnet ACLs are the gate. The profile is
-[sandbox-runtime](https://github.com/anthropics/sandbox-runtime)'s baseline plus GPU access and the
-folder; see `Sources/sandbox-mcp/Host.swift`.
+- Packages come in by rsync too: a uv cache into `.sandbox-home/.cache/uv`, then `uv sync --offline`.
+  Python is Homebrew's, or make another readable with `--allow-read PATH,PATH`.
+- `<folder>/autostart.sh`, if present, runs at start under the sandbox (output in
+  `.sandbox-tmp/autostart.log`).
+- Each start is a new sandbox: jobs from an earlier start keep running, but can't be signalled from
+  the new one.
+- Memory monitoring works (`vm_stat`, `memory_pressure`, sysctlbyname `hw.memsize`, `vm.swapusage`);
+  `ps`, `top` and the `sysctl` command don't.
+- `taildrop_get` moves files sent with Taildrop into `inbox/`. Add `.sandbox-home/` and
+  `.sandbox-tmp/` to the project's `.gitignore`. No port has auth of its own; your tailnet ACLs are
+  the gate.
+- The profile is [sandbox-runtime](https://github.com/anthropics/sandbox-runtime)'s baseline plus GPU
+  access and the folder; see `Sources/sandbox-mcp/Host.swift`.
 
 ## Snapshots (VM stopped)
 
