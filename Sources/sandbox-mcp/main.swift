@@ -12,17 +12,36 @@ usage:
   sandbox-mcp aggregate --config SERVERS.json --listen vsock:PORT|HOST:PORT
   sandbox-mcp shell|files|git --root PROJECT_DIR
   sandbox-mcp relay --listen vsock:PORT --to HOST:PORT
-  sandbox-mcp host --root DIR [--listen tailscale|HOST[:PORT]] [--rsync HOST[:PORT]] [--expose PORT[:OUTER]] [--allow-read PATH,PATH] [--print-profile]
+  sandbox-mcp host --root DIR   (or dist/sandbox-host --root DIR ...) [--listen tailscale|HOST[:PORT]] [--rsync HOST[:PORT]] [--expose PORT[:OUTER]] [--allow-read PATH,PATH] [--print-profile]
   sandbox-mcp taildrop|monitor --root DIR
 """
 let version = "0.1"
 
 signal(SIGPIPE, SIG_IGN)
 setvbuf(stdout, nil, _IOLBF, 0)
-let argv = Array(CommandLine.arguments.dropFirst())
+// Invoked as `sandbox-host` (dist/ links that name to this binary), it is host mode itself.
+let invokedAsHost = (CommandLine.arguments[0] as NSString).lastPathComponent == "sandbox-host"
+let argv = invokedAsHost ? ["host"] + CommandLine.arguments.dropFirst() : Array(CommandLine.arguments.dropFirst())
+
+/// Options of VM mode, named in the error when one is given to host mode.
+let vmOnly = Dictionary(uniqueKeysWithValues: ["share", "memory-gb", "cpus", "ssh", "gui", "network", "tools", "guest-port"].map {
+    ($0, "VM mode: dist/sandbox-vm run BUNDLE --share DIR")
+})
+let commandOptions: [String: (values: Set<String>, flags: Set<String>)] = [
+    "aggregate": (["config", "listen"], []),
+    "relay": (["listen", "to"], []),
+    "host": (["root", "listen", "rsync", "expose", "allow-read"], ["print-profile"]),
+    "monitor": (["root"], []),
+    "taildrop": (["root", "home", "tmp"], []),
+    "shell": (["root"], ["no-login"]),
+    "files": (["root"], []),
+    "git": (["root"], []),
+]
 
 do {
-    let options = try Options(Array(argv.dropFirst()), flags: ["no-login", "print-profile"])
+    let takes = commandOptions[argv.first ?? ""] ?? ([], [])
+    let options = try Options(Array(argv.dropFirst()), command: argv.first == "host" ? "sandbox-host" : "sandbox-mcp \(argv.first ?? "")",
+                              values: takes.values, flags: takes.flags, elsewhere: vmOnly)
     switch argv.first {
     case "aggregate":
         let selfPath = Bundle.main.executablePath ?? CommandLine.arguments[0]
@@ -48,7 +67,9 @@ do {
             }
         }
     case "host":
-        try Host.run(options, selfPath: Bundle.main.executablePath ?? CommandLine.arguments[0])
+        // The real binary, not the sandbox-host link, since it starts itself for each server.
+        let selfPath = URL(fileURLWithPath: Bundle.main.executablePath ?? CommandLine.arguments[0]).resolvingSymlinksInPath().path
+        try Host.run(options, selfPath: selfPath)
     case "monitor":
         serveStdio(MCPServer(name: "vm-sandbox-monitor", version: version,
                              provider: LocalTools(MonitorServer(root: try options.require("root")).tools)))

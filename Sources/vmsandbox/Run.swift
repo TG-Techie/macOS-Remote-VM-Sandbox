@@ -47,7 +47,7 @@ enum Run {
         }
 
         let configuration = try makeConfiguration(bundle, config, shares: shares, network: network == "nat")
-        print("booting with \(config.cpuCount) CPUs and \(config.memoryBytes >> 30) GiB memory")
+        print("VM mode: booting with \(config.cpuCount) CPUs and \(config.memoryBytes >> 30) GiB memory")
         // A guest due for provisioning gets Apple's start options on this, its first boot.
         let startOptions = try config.provision.map { try Provisioning.startOptions(user: $0.user, password: $0.password) }
         let gui = options.flag("gui")

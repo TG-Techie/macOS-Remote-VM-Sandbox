@@ -70,4 +70,4 @@ snapshot=$vms/$name-base-$(date +%F).vmbundle
 step "snapshot"
 cp -c -R "$bundle" "$snapshot"
 echo "Done. Snapshot: $snapshot"
-echo "Boot it: dist/vmsandbox run $bundle --share /path/to/project --memory-gb 12"
+echo "Boot it: dist/sandbox-vm run $bundle --share /path/to/project --memory-gb 12"

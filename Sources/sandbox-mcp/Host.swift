@@ -41,6 +41,7 @@ enum Host {
         // openrsync's daemon looks up its own user at start; it is fixed code serving only the folder.
         let rsyncProfile = makeProfile(root: root, selfDir: selfDir, reads: extraReads, files: [rsyncConfig], userLookup: true)
         if options.flag("print-profile") { print(profile); exit(0) }
+        print("host mode (no VM): tools for this Mac's \(root), compute only")
         let exposed = exposeParts.map { (host: mcp.host, port: $0.outer) }
         for address in [mcp, rsync] + (exposed.map { [$0] } ?? []) where tcpAnswers(host: address.host, port: address.port) {
             throw ToolError("something on this Mac already answers on \(address.host):\(address.port) (see: lsof -nP -iTCP:\(address.port) -sTCP:LISTEN); pick another port with --listen or --rsync")

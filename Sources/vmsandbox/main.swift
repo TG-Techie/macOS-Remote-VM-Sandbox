@@ -7,7 +7,8 @@ import Virtualization
 // port. The binary needs the com.apple.security.virtualization entitlement to start a VM.
 
 let usage = """
-usage:
+VM mode: a macOS VM with one project folder shared in. (No VM: dist/sandbox-host.)
+usage (dist/sandbox-vm, or dist/vmsandbox):
   vmsandbox ipsw-url
       Print the URL of the latest macOS restore image this Mac supports. Downloads nothing.
   vmsandbox ipsw-info RESTORE.ipsw
@@ -27,6 +28,11 @@ usage:
       from http://HOST:PORT/mcp (default 127.0.0.1:8765) to guest vsock port N (default 8765).
       --memory-gb and --cpus apply to this boot only; the defaults are the values from create.
 """
+
+/// Options of host mode (no VM), named in the error when one is given here.
+let hostOnly = Dictionary(uniqueKeysWithValues: ["root", "expose", "rsync", "allow-read", "print-profile"].map {
+    ($0, "host mode, the tools on this Mac with no VM: dist/sandbox-host --root DIR")
+})
 
 signal(SIGPIPE, SIG_IGN)
 setvbuf(stdout, nil, _IOLBF, 0) // progress lines show up promptly in logs and pipes
@@ -61,15 +67,19 @@ do {
         }
         dispatchMain()
     case "create":
-        try Create.run(try Options(Array(argv.dropFirst())))
+        try Create.run(try Options(Array(argv.dropFirst()), command: "sandbox-vm create",
+                                   values: ["ipsw", "cpus", "memory-gb", "disk-gb", "user", "password"], elsewhere: hostOnly))
     case "ip":
         guard argv.count == 2 else { throw ToolError("name the VM bundle") }
         print(try Exec.address(VMBundle(path: argv[1])))
         exit(0)
     case "exec":
-        try Exec.run(try Options(Array(argv.dropFirst()), flags: ["root"]))
+        try Exec.run(try Options(Array(argv.dropFirst()), command: "sandbox-vm exec",
+                                 values: ["user", "password", "host"], flags: ["root"], elsewhere: hostOnly))
     case "run":
-        try Run.run(try Options(Array(argv.dropFirst()), flags: ["gui"]))
+        try Run.run(try Options(Array(argv.dropFirst()), command: "sandbox-vm run",
+                                values: ["share", "memory-gb", "cpus", "tools", "network", "listen", "ssh", "guest-port"],
+                                flags: ["gui"], elsewhere: hostOnly))
     default:
         print(usage)
         exit(argv.isEmpty || argv.first == "help" ? 0 : 64)

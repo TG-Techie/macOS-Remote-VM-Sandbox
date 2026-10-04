@@ -75,5 +75,5 @@ fi
 
 echo
 echo "Ready. Run it with your project shared and the RAM you want, for example:"
-echo "  dist/vmsandbox run $bundle --share /path/to/project --memory-gb 4"
+echo "  dist/sandbox-vm run $bundle --share /path/to/project --memory-gb 4"
 echo "MCP is then at http://127.0.0.1:8765/mcp on this Mac only."
