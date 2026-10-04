@@ -1,29 +1,134 @@
-# vm-sandbox
+# macOS Remote VM Sandbox
 
-A macOS VM that gives an agent a Mac's compute, including its GPU through Metal, while limiting
-what the agent can reach on the host to one project folder. The agent works through MCP tools
-for shell commands, file edits and git that run inside the VM.
+A macOS virtual machine that gives an AI agent a Mac's compute, including its GPU through Metal
+(MLX works), while limiting what the agent can reach on the host to one project folder. The agent
+works through MCP tools for shell commands, file edits and git that run inside the VM, reached
+over a private host–VM channel (vsock), not the network.
 
-Status (2026-10-03): working on an Apple silicon test Mac. A macOS 26.6.2 guest serves its MCP tools over
-vsock, and MLX inside it uses the GPU. See "Verified, and not yet" below. Setup steps: [docs/setup.md](docs/setup.md). Whether MLX gets the GPU
-in a guest: [docs/feasibility-mlx-in-macos-guest.md](docs/feasibility-mlx-in-macos-guest.md).
+## Requirements
+
+- An Apple silicon Mac on macOS 26 (macOS 27 also works, and can skip Setup Assistant; untested).
+- Xcode or the Command Line Tools, with Swift 5.9 or later (`swift --version`).
+- Disk: about 18 GB for the macOS restore image, which you can delete after setup, plus the VM's
+  disk, which starts around 20 GB and grows to at most 64 GB.
+- Memory: the VM takes what you give it while it runs. 4 GB is the minimum; MLX in the VM can
+  use about two thirds of the VM's memory on the GPU.
+
+Everything stays inside this folder: the build in `dist/`, and the restore image, VMs and
+snapshots in `vms/`, all git-ignored and excluded from iCloud Drive sync. `--vms DIR` puts the
+VMs elsewhere.
 
 ## Setup
 
-On an Apple silicon Mac with Xcode or the Command Line Tools, from this folder:
+1. Build, download macOS, install it and open the VM's window:
 
-1. `scripts/setup-mac.sh --fresh sandbox` builds the tool, downloads macOS, installs it into a
-   new VM and opens the VM's window.
-2. In the window: create the user `admin` with password `admin` in Setup Assistant. Then, in
-   the VM's Terminal, start the guest's agent:
-   `zsh "/Volumes/My Shared Files/tools/install-guest.sh"`. Leave the VM running.
-3. `scripts/finalize-mac.sh` sets up the guest through that agent (passwordless sudo, automatic
-   login, no sleep, the Command Line Tools and Homebrew), shuts it down and snapshots it. It
-   needs no SSH and no network route to the guest; the last two steps need the guest to reach
-   the internet.
+   ```sh
+   scripts/setup-mac.sh --fresh sandbox
+   ```
 
-Then boot it with your project: `dist/vmsandbox run vms/sandbox.vmbundle --share PROJECT
---memory-gb N`. Details, and moving a VM to another Mac: [docs/setup.md](docs/setup.md).
+   Install and first setup get half the Mac's memory (4 to 16 GB) so they go faster. If the
+   window closes or you stop here, the same command reopens it.
+
+2. In the VM's window, finish Setup Assistant: create the user `admin` with password `admin`,
+   and skip the Apple Account, Siri, analytics and FileVault. Then open Terminal in the VM and
+   start the guest's agent:
+
+   ```sh
+   zsh "/Volumes/My Shared Files/tools/install-guest.sh"
+   ```
+
+   Leave the VM running.
+
+3. Back on the Mac, in this folder:
+
+   ```sh
+   scripts/finalize-mac.sh
+   ```
+
+   This sets up the guest through its agent (passwordless sudo, automatic login, no sleep, the
+   Command Line Tools and Homebrew), shuts it down and snapshots it as
+   `vms/sandbox-base-<date>.vmbundle`. The Command Line Tools and Homebrew need the VM to reach
+   the internet; if it can't, finalize says so and snapshots everything before that.
+
+The `admin`/`admin` account isn't a secret: the boundary is the VM, which only this Mac can
+reach.
+
+## Using it
+
+Boot the VM with a project folder shared into it:
+
+```sh
+dist/vmsandbox run vms/sandbox.vmbundle --share ~/path/to/project --memory-gb 12
+```
+
+| Option | Meaning |
+|---|---|
+| `--share DIR` | The folder the guest sees, read-write, at `/Volumes/My Shared Files/project`. Required. |
+| `--memory-gb N` | Memory for this boot. Default: the value from install. |
+| `--cpus N` | CPUs for this boot. Default: the value from install (all of them). |
+| `--gui` | Open a window on the VM's screen. Without it, the VM runs headless. |
+| `--network nat\|none` | `none` gives the guest no network at all; MCP still works. Default `nat`. |
+| `--listen HOST:PORT` | Where MCP is served on the Mac. Default `127.0.0.1:8765`. |
+
+Then point an MCP client at it, for example Claude Code:
+
+```sh
+claude mcp add --transport http vm-sandbox http://127.0.0.1:8765/mcp
+```
+
+The agent gets `shell_exec` and background jobs (`shell_job_start`, `shell_job_output`, …) for
+long runs, `files_read`, `files_write`, `files_edit` and `files_list`, the `git_*` tools, and
+`sandbox_status`.
+
+To stop the VM, press Ctrl-C in the terminal running it: that asks the guest to shut down, and a
+second Ctrl-C (or 60 seconds) stops it outright. Shutting down from the VM's Apple menu works too.
+
+### Snapshots
+
+A snapshot is an APFS clone of the stopped VM: instant, and it takes no extra disk until the copies
+diverge. Take one before anything you might want to undo:
+
+```sh
+cp -c -R vms/sandbox.vmbundle vms/sandbox-before-x.vmbundle
+```
+
+To go back, delete the VM and clone the snapshot to its name. To start a new project from the
+base, clone `vms/sandbox-base-<date>.vmbundle` to a new name and run that.
+
+### Moving a VM to another Mac
+
+`scripts/pack.sh vms/sandbox.vmbundle sandbox.tar.gz` packs a stopped VM into one file, keeping
+its disk sparse. On the other Mac, `scripts/setup-mac.sh --from sandbox.tar.gz` builds the tool,
+unpacks the VM and offers to delete the archive. Not yet tried between two Macs.
+
+## Troubleshooting
+
+- **`finalize-mac.sh` says nothing answers at 127.0.0.1:8765.** The VM isn't running, or the
+  agent wasn't started: run step 2's command in the VM's Terminal. Its log in the guest is
+  `~/Library/Logs/vm-sandbox-mcp.log`. `vmsandbox run` prints "guest connection failed" while the
+  agent isn't up.
+- **The VM has no internet, or the Mac can't reach it at 192.168.64.x.** Check
+  `route -n get 192.168.64.1` on the Mac: it should name a `bridge` interface. VPNs and Tailscale
+  can route the VM's network (192.168.64.0/24, macOS's default) elsewhere; we've seen a static
+  route to the LAN router appear on Macs running Tailscale. MCP over vsock is unaffected, so the
+  agent keeps working; only internet access from the guest and SSH need the route.
+- **"Failed to lock auxiliary storage" right after install.** The installer was still releasing
+  the VM; `run` now waits and retries. If it persists, check nothing else is running the VM.
+- **An entitlement error when starting a VM.** Run `scripts/sign.sh`; every build replaces the
+  signed binary. `setup-mac.sh` does both.
+- **A tool is missing.** Call `sandbox_status`.
+
+## What limits the agent
+
+- The VM is the boundary. Of the host, the guest sees only the project folder and a read-only
+  folder holding its own tools, so nothing in the guest can change the server it runs.
+- The MCP server listens on vsock, not on a network address, so only the host process that owns
+  the VM can reach it. `vmsandbox run` forwards it to `127.0.0.1` by default.
+- `files` and `git` refuse paths outside the project folder, including through `..` and
+  symlinks. `shell` is not confined within the guest: it can reach the whole VM, and the network
+  if the VM has one (`--network none` removes it).
+- The server has no authentication of its own. Exposing it beyond the Mac, for example with
+  `tailscale serve` in front of the loopback port, is a decision for the machine's owner.
 
 ## How it fits together
 
@@ -38,143 +143,29 @@ dist/guest  ── VirtioFS, read-only ──────────►    └�
                                                 /Volumes/My Shared Files/{project,tools}
 ```
 
-- **`vmsandbox`** (host): `ipsw-url` and `ipsw-info` describe restore images; `create` installs macOS from a local restore image into a VM bundle;
-  `run` boots it, shares the project folder read-write and the guest tools read-only, and
-  forwards a host TCP port to the aggregator's vsock port. `--gui` opens a window, which
-  first-boot setup needs.
+- **`vmsandbox`** (host): `create` installs macOS from a restore image into a VM bundle; `run`
+  boots it, shares the folders and forwards the MCP port; `exec` runs a script over SSH;
+  `ipsw-url` and `ipsw-info` describe restore images. `dist/vmsandbox` with no arguments prints
+  its usage.
 - **`sandbox-mcp aggregate`** (guest): runs the stdio MCP servers listed in
-  `guest/servers.json` and serves their tools as one MCP server, each named
-  `<server>_<tool>`, over Streamable HTTP (the stateless, JSON-response subset). Its own
-  `sandbox_status` tool reports any server that failed to start. Adding another stdio MCP
-  server is a config entry.
-- **`sandbox-mcp shell | files | git`**: the tool servers. `shell` runs `zsh -l -c` to
-  completion or as background jobs, for training runs that outlast a tool call. `files` reads,
-  writes, edits and lists. `git` has status, diff, log, a commit that stages only the paths
-  it's given, and `run` for anything else.
-
-## What limits the agent
-
-- The VM is the boundary. Of the host, the guest sees only the two shared folders, and the
-  tools folder is read-only, so nothing in the guest can change the server it runs.
-- The aggregator listens on vsock, not on a network address, so only the host process that
-  owns the VM can reach it. `vmsandbox run` forwards it to `127.0.0.1` by default.
-- `files` and `git` refuse paths outside the project folder, including through `..` and
-  symlinks. `shell` is not confined within the guest: it can reach the whole VM, and the
-  network if the VM has one (`--network none` removes it).
-- Exposing the port beyond the host, such as on a tailnet, is a separate step and a
-  decision for the machine's owner. The server has no authentication of its own.
-
-## Verified, and not yet
-
-Run on an Apple silicon test Mac on macOS 26, with a macOS 26.6.2 guest at 4 GiB unless noted:
-
-- **Verified in the VM:**
-  - The guest's MCP aggregator listens on vsock and answers through `vmsandbox run`'s
-    forwarder.
-  - The shares mount at `/Volumes/My Shared Files/{project,tools}`.
-  - `sandbox-mcp` runs from the read-only tools share, under a LaunchAgent that comes back
-    after a reboot. It answered 23 s after boot.
-  - Ad-hoc signing with the entitlement is enough to install and run a VM.
-  - MLX 0.32.3 sees the GPU ("Apple Paravirtual device", 2.86 GB recommended working set, two
-    thirds of the guest's RAM). Its fp32 2048² matmul matches the CPU exactly and runs at 96%
-    of host speed by wall clock (3,016 vs 3,154 GFLOP/s).
-  - `run --memory-gb` sizes a boot; at 9 GiB the guest GPU's working set is 6.0 GiB, two thirds
-    again.
-- **Found:**
-  - Symlinks in a shared folder fail in the guest with ELOOP, so pass trees in as tarballs.
-  - Training a 210M-parameter MLX model in an 11 GiB guest ran 4–5 times slower than on the
-    host by wall time between steps, with spikes on deep steps, though a single matmul runs at
-    96%. Its MLX peak reached 7.80 GiB, past the 7.33 GiB recommended working set, without
-    failing. The cause, measured on a host with too little RAM for both: with the VM's 11 GB
-    resident, the host
-    compressed and decompressed about 2.3 GB/s and swapped about 2 GB each way in 30 s, with
-    kernel_task at 150–175% CPU. With the VM down and training on the host, those figures fell
-    to roughly a tenth. A host with RAM for both shouldn't see this; unmeasured.
-  - Dropping the guest's network mid-pull: 8 s was absorbed by TCP; 90 s made the pull fail
-    loudly and the next pull recover, and training in the guest never stopped.
-  - The NAT bridge's name changes between boots (bridge101, then bridge100); find it by its
-    address on the VM network (192.168.64.1, macOS's default).
-  - The guest's home folder was found world-writable (777), cause unknown, and sshd refused
-    keys until it was set to 750.
-  - The test Mac's own network setup cut the guest off from the internet and from the host's
-    NAT routing; binding to the VM's bridge worked around the latter. MCP over vsock is
-    unaffected.
-- **Not yet:**
-  - Copying a VM to another Mac (`scripts/pack.sh` and `scripts/setup-mac.sh --from`).
-  - Sharing an iCloud folder with evicted files.
-  - Apple's macOS 27 guest provisioning (`vmsandbox` reaches it dynamically; no macOS 27 host
-    has run it).
-
-## Prior art
-
-Surveyed 2026-10-03 from each project's docs and repository; nothing was installed. Licences
-are from GitHub's API and the licence files.
-
-| | Tart (Cirrus Labs) | Lume (Cua) | vmsandbox |
-|---|---|---|---|
-| Licence | FSL-1.1-ALv2 (Fair Source): free on personal computers; organisations over 100 CPU cores pay | MIT | (this repo) |
-| Create and install from an IPSW | yes, `tart create --from-ipsw` | yes, `lume create --ipsw` | yes |
-| Skip Setup Assistant | not found in the docs I read | yes, `--unattended`: patches the installed disk offline to add a `lume`/`lume` admin, autologin and SSH | no; a person does it once |
-| Folder shares, read-only option | yes, `--dir name:path[:ro]` | yes, `--shared-dir path[:ro]` | yes, project read-write and tools read-only |
-| Commands in the guest | `tart exec`, through its guest agent | SSH, over the VM's network | MCP tools, over vsock |
-| MCP or an agent API | not found in the docs I read | HTTP API on localhost:7777, and an MCP server (stdio) to list, create, run, stop, clone and resize VMs and to run SSH commands in guests | an MCP server inside the guest, scoped to one project |
-
-Others I checked only by their repository descriptions and licences: VirtualBuddy (BSD-2-Clause)
-and UTM (Apache-2.0) are GUI apps, and vfkit (Apache-2.0) is a Virtualization.framework CLI.
-I didn't look at their features.
-
-What Apple recommends (read 2026-10-03):
-
-- **Skipping Setup Assistant in a VM, new in macOS 27.** `VZMacGuestProvisioningOptions` (with
-  `VZMacOSVirtualMachineStartOptions.setGuestProvisioning`) gives the guest a username,
-  password, automatic login and SSH. The guest applies them "on the first boot after restore".
-  It "requires guest macOS 27 or later", and the host needs the macOS 27 SDK. Apple's sample
-  "Running macOS in a virtual machine on Apple silicon" uses it. Sources:
-  https://developer.apple.com/documentation/virtualization/vzmacguestprovisioningoptions and
-  https://developer.apple.com/documentation/virtualization/running-macos-in-a-virtual-machine-on-apple-silicon
-- **The same sample shows DiskImageKit, also new in macOS 27:** several VMs over a shared base
-  disk image.
-- **For managed fleets, Apple's route is MDM with Automated Device Enrollment** through Apple
-  Business or School Manager, which "can skip all Setup Assistant panes"
-  (https://support.apple.com/guide/deployment/manage-setup-assistant-depdeff4a547/web). It needs
-  that whole infrastructure.
-- **On a macOS 26 host such as this Mac,** none of these is available. A person clicks
-  through Setup Assistant once, and the base image is reused after that.
-
-What this means for vmsandbox (my reading):
-
-- **Lume covers the host side.** Create, install, run and shares are all there, under MIT,
-  and it has the step vmsandbox lacks: unattended first-boot setup. Its installer runs
-  `lume serve` at login, though, which is a login item on the machine.
-- **What vmsandbox still adds is the agent's boundary.** Lume's MCP server runs on the host
-  and can create, delete and SSH into any VM, so an agent holding it holds the VM manager.
-  vmsandbox's MCP server runs inside one guest. It reaches only that guest and its project
-  folder, needs no guest network, and needs no SSH password.
-- **A middle path:** keep vmsandbox and borrow Lume's offline-setup technique, crediting it
-  as MIT requires. Its source notes are sobering on fragility. For example, the autologin
-  password file was encoded wrongly and still "worked", so nothing looked broken.
-
-Sources (read 2026-10-03):
-- Tart:
-  - https://github.com/cirruslabs/tart (LICENSE)
-  - https://tart.run/licensing/
-  - https://tart.run/quick-start/
-  - https://github.com/cirruslabs/tart-guest-agent (README: "`tart exec` support (`--run-rpc`)")
-- Lume:
-  - https://cua.ai/docs/lume
-  - https://cua.ai/docs/lume/guides/api-and-mcp
-  - https://cua.ai/docs/lume/guides/manage-vms
-  - https://github.com/trycua/cua (LICENSE.md: MIT; `libs/lume/src/Unattended/MacOSOfflineSetupPatcher.swift`)
-- Others: https://github.com/insidegui/VirtualBuddy, https://github.com/utmapp/UTM, and
-  https://github.com/crc-org/vfkit.
+  `guest/servers.json` and serves their tools as one MCP server, each named `<server>_<tool>`,
+  over Streamable HTTP (the stateless, JSON-response subset). Adding another stdio MCP server is
+  a config entry.
+- **`sandbox-mcp shell | files | git`**: the tool servers.
 
 ## Layout
 
 - `Sources/vmsandbox/`: the host CLI.
 - `Sources/sandbox-mcp/`: the guest binary.
-- `Sources/SandboxKit/`: MCP over stdio and HTTP, the aggregator, path confinement, and
-  process spawning.
-- `guest/`: the aggregator's config and the guest install script.
-- `scripts/`: `build.sh` assembles `dist/`, and `sign.sh` adds the entitlement. `pack.sh`
-  packs a stopped VM into one file, and `setup-mac.sh` sets up a Mac from it, or from scratch.
-- `swift test` runs the path-confinement tests.
+- `Sources/SandboxKit/`: MCP over stdio and HTTP, the aggregator, path confinement, and process
+  spawning. `swift test` runs the path-confinement tests.
+- `guest/`: the aggregator's config, the agent's install script, and the base setup script.
+- `scripts/`: `setup-mac.sh` and `finalize-mac.sh` (setup), `build.sh` and `sign.sh`, and
+  `pack.sh` (moving a VM).
+- `docs/`: [step-by-step setup](docs/setup.md), [findings and prior art](docs/findings.md),
+  [whether MLX gets the GPU in a guest](docs/feasibility-mlx-in-macos-guest.md), and
+  [unattended setup](docs/unattended-setup.md).
+
+## License
+
+MIT; see [LICENSE](LICENSE).
