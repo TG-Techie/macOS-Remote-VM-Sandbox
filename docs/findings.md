@@ -40,6 +40,16 @@ Run on an Apple silicon test Mac on macOS 26, with a macOS 26.6.2 guest at 4 GiB
     Macs. With the exit node off and the bridge route restored, the guest pings 8.8.8.8; turning
     the exit node back on breaks it again. Binding to the VM's bridge reaches the guest regardless. MCP over vsock is
     unaffected.
+  - A file the guest has opened through the share keeps its space on the host after the host
+    deletes it, for as long as the guest keeps its vnode: measured on an M3 Max host (two 300 MB
+    files; deleting the one the guest never read freed 300 MB, deleting the one it had read freed
+    nothing). Purging the guest's caches, stopping its reader and listing the folder didn't release
+    it. A guest reading every 2 GB checkpoint as the host replaced it held about 18 GiB. The hold
+    is bounded by the guest's vnode table (`kern.maxvnodes`, 64,124 in a 4 GiB guest, full): a
+    read-only walk of many files in the guest (`find /System/Library /usr /Library /Applications
+    -type f | wc -l`, 366,035 files, 17 s) recycled it, and the host freed 18.5 GiB. So don't rotate
+    files on the host that the guest reads through the share; copy them in (rsync over the
+    network), or walk files in the guest to release what's held.
 - **Not yet:**
   - Copying a VM to another Mac (`scripts/pack.sh` and `scripts/setup-mac.sh --from`).
   - Sharing an iCloud folder with evicted files.
