@@ -29,9 +29,9 @@ final class MonitorServer {
             + "\(disk.volumeAvailableCapacityForImportantUsage.map(gib) ?? "?") available for important use (free plus purgeable), "
             + "\(disk.volumeAvailableCapacityForOpportunisticUsage.map(gib) ?? "?") for opportunistic use")
 
-        func sysctl<T>(_ name: String, _ value: inout T) -> Bool {
+        func sysctl<T: BitwiseCopyable>(_ name: String, _ value: inout T) -> Bool {
             var size = MemoryLayout<T>.size
-            return sysctlbyname(name, &value, &size, nil, 0) == 0
+            return withUnsafeMutableBytes(of: &value) { sysctlbyname(name, $0.baseAddress, &size, nil, 0) } == 0
         }
         var memsize: UInt64 = 0, pressure: Int32 = 0
         var swap = xsw_usage()
