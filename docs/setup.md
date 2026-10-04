@@ -25,7 +25,7 @@ scripts/setup-mac.sh --fresh sandbox               # or: download macOS, install
 
 Either one builds and signs vmsandbox. `--from` unpacks a ready VM into `vms/`, so nobody
 clicks through anything. `--fresh` does steps 2–4 below and opens the window for Setup
-Assistant; after it, `scripts/finalize-mac.sh` does steps 5 and 6 and snapshots the VM. The steps below are what the script does.
+Assistant; after it and one command in the VM's Terminal (see the README), `scripts/finalize-mac.sh` does step 5 over vsock and snapshots the VM. The steps below are what the script does.
 
 ## 1. Build
 

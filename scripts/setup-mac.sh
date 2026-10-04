@@ -63,9 +63,9 @@ else
     fi
     dist/vmsandbox create "$bundle" --ipsw "$ipsw" --memory-gb $setup_gb
   fi
-  echo "Opening the VM's window. In Setup Assistant create user admin, password admin, then in"
-  echo "System Settings > General > Sharing turn on Remote Login. Leave the window open and run,"
-  echo "in another terminal in this folder:  scripts/finalize-mac.sh $fresh"
+  echo "Opening the VM's window. In Setup Assistant create user admin, password admin. Then in the"
+  echo "VM's Terminal run:  zsh \"/Volumes/My Shared Files/tools/install-guest.sh\""
+  echo "Leave the VM running, and in another terminal in this folder run:  scripts/finalize-mac.sh $fresh"
   mkdir -p "$vms/empty-share"
   exec dist/vmsandbox run "$bundle" --share "$vms/empty-share" --memory-gb $setup_gb --gui
 fi

@@ -14,10 +14,13 @@ On an Apple silicon Mac with Xcode or the Command Line Tools, from this folder:
 
 1. `scripts/setup-mac.sh --fresh sandbox` builds the tool, downloads macOS, installs it into a
    new VM and opens the VM's window.
-2. In the window: create the user `admin` with password `admin` in Setup Assistant, then turn
-   on Remote Login in System Settings › General › Sharing. Leave the window open.
-3. `scripts/finalize-mac.sh` sets up the guest (passwordless sudo, automatic login, no sleep,
-   the Command Line Tools, Homebrew, and the MCP agent), shuts it down and snapshots it.
+2. In the window: create the user `admin` with password `admin` in Setup Assistant. Then, in
+   the VM's Terminal, start the guest's agent:
+   `zsh "/Volumes/My Shared Files/tools/install-guest.sh"`. Leave the VM running.
+3. `scripts/finalize-mac.sh` sets up the guest through that agent (passwordless sudo, automatic
+   login, no sleep, the Command Line Tools and Homebrew), shuts it down and snapshots it. It
+   needs no SSH and no network route to the guest; the last two steps need the guest to reach
+   the internet.
 
 Then boot it with your project: `dist/vmsandbox run vms/sandbox.vmbundle --share PROJECT
 --memory-gb N`. Details, and moving a VM to another Mac: [docs/setup.md](docs/setup.md).
