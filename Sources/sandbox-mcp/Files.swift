@@ -56,7 +56,7 @@ final class FilesServer {
         let url = try jail.resolve(try args.string("path"))
         let content = try args.string("content")
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data(content.utf8).write(to: url, options: .atomic)
+        try writeAtomically(Data(content.utf8), to: url)
         return "wrote \(content.utf8.count) bytes to \(jail.relative(url))"
     }
 
@@ -78,7 +78,7 @@ final class FilesServer {
         } else {
             updated = original.replacingCharacters(in: original.range(of: old)!, with: new)
         }
-        try Data(updated.utf8).write(to: url, options: .atomic)
+        try writeAtomically(Data(updated.utf8), to: url)
         return "replaced \(all ? count : 1) occurrence\(all && count > 1 ? "s" : "") in \(jail.relative(url))"
     }
 

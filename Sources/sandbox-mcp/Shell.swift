@@ -11,6 +11,9 @@ final class ShellServer {
     private var jobs: [Int: Job] = [:]
     private var nextJob = 1
     private static let outputLimit = 30_000
+    /// zsh's flags before -c: a login shell in the guest; a plain one on a host, where the user's
+    /// profile is outside the sandbox.
+    private let shell: [String]
 
     final class Job {
         let id: Int
@@ -25,14 +28,15 @@ final class ShellServer {
         }
     }
 
-    init(root: String) throws {
+    init(root: String, login: Bool = true) throws {
         jail = try PathJail(root: root)
-        scratch = FileManager.default.temporaryDirectory.appendingPathComponent("sandbox-mcp-\(getpid())")
+        shell = login ? ["/bin/zsh", "-l", "-c"] : ["/bin/zsh", "-c"]
+        scratch = temporaryFolder().appendingPathComponent("sandbox-mcp-\(getpid())")
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
     }
 
     var tools: [Tool] {
-        let command: JSON = ["type": "string", "description": "Run by zsh -l -c."]
+        let command: JSON = ["type": "string", "description": .string("Run by zsh \(shell.dropFirst().joined(separator: " ")).")]
         let cwd: JSON = ["type": "string", "description": "Working directory, relative to the project folder. Default: the project folder."]
         return [
             Tool(name: "exec",
@@ -73,7 +77,7 @@ final class ShellServer {
         let err = scratch.appendingPathComponent(UUID().uuidString + ".err")
         defer { try? FileManager.default.removeItem(at: out); try? FileManager.default.removeItem(at: err) }
 
-        let pid = try spawnProcess(["/bin/zsh", "-l", "-c", command], cwd: dir.path, stdout: out.path, stderr: err.path)
+        let pid = try spawnProcess(shell + [command], cwd: dir.path, stdout: out.path, stderr: err.path)
         var outcome: String
         if let status = waitForExit(pid, timeout: timeout) {
             outcome = describeExit(status)
@@ -95,7 +99,7 @@ final class ShellServer {
         nextJob += 1
         lock.unlock()
         let log = scratch.appendingPathComponent("job-\(id).log")
-        let pid = try spawnProcess(["/bin/zsh", "-l", "-c", command], cwd: dir.path, stdout: log.path)
+        let pid = try spawnProcess(shell + [command], cwd: dir.path, stdout: log.path)
         let job = Job(id: id, command: command, cwd: jail.relative(dir), pid: pid, log: log)
         lock.lock(); jobs[id] = job; lock.unlock()
         Thread.detachNewThread { [weak self] in

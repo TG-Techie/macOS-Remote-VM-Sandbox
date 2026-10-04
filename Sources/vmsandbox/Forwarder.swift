@@ -114,17 +114,3 @@ final class Forwarder {
     }
 }
 
-/// Whether something accepts a TCP connection at host:port right now.
-func tcpAnswers(host: String, port: UInt16) -> Bool {
-    let fd = socket(AF_INET, SOCK_STREAM, 0)
-    guard fd >= 0 else { return false }
-    defer { close(fd) }
-    var addr = sockaddr_in()
-    addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-    addr.sin_family = sa_family_t(AF_INET)
-    addr.sin_port = port.bigEndian
-    guard inet_pton(AF_INET, host == "0.0.0.0" ? "127.0.0.1" : host, &addr.sin_addr) == 1 else { return false }
-    return withUnsafePointer(to: &addr) {
-        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
-    } == 0
-}

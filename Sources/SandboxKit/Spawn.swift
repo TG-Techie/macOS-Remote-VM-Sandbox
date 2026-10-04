@@ -1,5 +1,23 @@
 import Foundation
 
+/// A folder for a tool's temporary files: $TMPDIR when set (a host sandbox points it inside the
+/// project), else Foundation's per-user temporary folder.
+public func temporaryFolder() -> URL {
+    ProcessInfo.processInfo.environment["TMPDIR"].map { URL(fileURLWithPath: $0) } ?? FileManager.default.temporaryDirectory
+}
+
+/// Writes `data` to `url` atomically: a temporary file beside it, then a rename. Foundation's
+/// .atomic stages in a system folder, which a host sandbox doesn't let it write.
+public func writeAtomically(_ data: Data, to url: URL) throws {
+    let staging = url.deletingLastPathComponent().appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString).tmp")
+    try data.write(to: staging)
+    guard rename(staging.path, url.path) == 0 else {
+        let message = String(cString: strerror(errno))
+        try? FileManager.default.removeItem(at: staging)
+        throw ToolError("couldn't write \(url.path): \(message)")
+    }
+}
+
 /// Starts `argv` in a process group of its own, so the whole tree can be signalled together,
 /// with stdin from /dev/null and output to files. No other descriptor is inherited.
 public func spawnProcess(_ argv: [String], cwd: String?, stdout: String, stderr: String? = nil) throws -> pid_t {

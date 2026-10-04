@@ -6,9 +6,12 @@ public struct AggregatorConfig: Decodable {
         public let name: String
         public let command: String
         public let args: [String]?
+        public init(name: String, command: String, args: [String]) { self.name = name; self.command = command; self.args = args }
     }
     public let instructions: String?
     public let servers: [Server]
+
+    public init(instructions: String?, servers: [Server]) { self.instructions = instructions; self.servers = servers }
 
     /// Reads the config, replacing `${SELF}` in commands and arguments with `selfPath`.
     public static func load(_ path: String, selfPath: String) throws -> AggregatorConfig {

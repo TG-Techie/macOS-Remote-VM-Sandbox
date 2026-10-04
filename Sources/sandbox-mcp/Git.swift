@@ -56,7 +56,7 @@ final class GitServer {
     }
 
     private func run(_ args: [String]) throws -> String {
-        let out = FileManager.default.temporaryDirectory.appendingPathComponent("git-\(UUID().uuidString)")
+        let out = temporaryFolder().appendingPathComponent("git-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: out) }
         let pid = try spawnProcess([git, "-C", jail.root.path] + args, cwd: jail.root.path, stdout: out.path)
         let status = waitForExit(pid, timeout: 300) ?? terminateGroup(pid)

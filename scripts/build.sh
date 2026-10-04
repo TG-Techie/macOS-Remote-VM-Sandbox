@@ -15,6 +15,7 @@ swift build -c release
 mkdir -p dist/guest
 place() { cp "$1" "$2.new" && mv -f "$2.new" "$2" }
 place .build/release/vmsandbox dist/vmsandbox
+place .build/release/sandbox-mcp dist/sandbox-mcp   # `sandbox-mcp host`: the tools on this Mac, no VM
 for f in .build/release/sandbox-mcp guest/servers.json guest/install-guest.sh guest/base-setup.sh; do
   place "$f" "dist/guest/${f:t}"
 done
