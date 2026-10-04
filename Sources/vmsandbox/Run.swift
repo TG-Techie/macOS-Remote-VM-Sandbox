@@ -30,6 +30,11 @@ enum Run {
         let listen = try ListenAddress.parse(options.value("listen") ?? "127.0.0.1:8765")
         guard case .tcp = listen else { throw ToolError("--listen takes HOST:PORT on the host") }
         let guestPort = UInt32(try options.int("guest-port", default: 8765))
+        // SO_REUSEADDR lets our bind share a port with a wildcard listener, so a bind that succeeds
+        // doesn't prove the port is ours. Refuse before booting if anything already answers on it.
+        if case .tcp(let host, let port) = listen, tcpAnswers(host: host, port: port) {
+            throw ToolError("something on this Mac already answers on \(host):\(port) (see: lsof -nP -iTCP:\(port) -sTCP:LISTEN); pick another port with --listen")
+        }
 
         let configuration = try makeConfiguration(bundle, config, shares: shares, network: network == "nat")
         print("booting with \(config.cpuCount) CPUs and \(config.memoryBytes >> 30) GiB memory")
@@ -67,7 +72,13 @@ enum Run {
                     let forwarder = try Forwarder(device: socket, guestPort: guestPort, listen: listen)
                     forwarder.start()
                     self.forwarder = forwarder
-                    print("MCP: http://\(listen.hostPort)/mcp → guest vsock port \(guestPort)")
+                    print("MCP: listening on \(listen.hostPort); waiting for the guest's agent on vsock port \(guestPort)")
+                    forwarder.whenGuestAnswers(warnAfter: 120, late: {
+                        print("MCP: the guest's agent hasn't answered after 2 minutes. If this VM is new, run in its Terminal:")
+                        print("  zsh \"/Volumes/My Shared Files/tools/install-guest.sh\"")
+                    }, ready: {
+                        print("MCP: ready at http://\(listen.hostPort)/mcp")
+                    })
                 } catch {
                     fail("couldn't listen on \(listen): \(error)")
                 }

@@ -18,6 +18,34 @@ final class Forwarder {
         listenFD = try listenSocket(listen)
     }
 
+    /// Polls the guest port until the agent accepts a connection, then calls `ready` once on the
+    /// main queue. Calls `late` once if it hasn't after `warnAfter` seconds, and keeps polling.
+    func whenGuestAnswers(warnAfter: TimeInterval, late: @escaping () -> Void, ready: @escaping () -> Void) {
+        let started = Date()
+        var warned = false
+        func attempt() {
+            var settled = false
+            func retry() {
+                guard !settled else { return }
+                settled = true
+                if !warned, Date().timeIntervalSince(started) > warnAfter { warned = true; late() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { attempt() }
+            }
+            // As in connect(_:): with nothing listening, the completion may never run.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5) { retry() }
+            device.connect(toPort: guestPort) { result in
+                DispatchQueue.main.async {
+                    guard case .success(let connection) = result else { return retry() }
+                    connection.close()
+                    guard !settled else { return }
+                    settled = true
+                    ready()
+                }
+            }
+        }
+        attempt()
+    }
+
     func start() {
         Thread.detachNewThread { [self] in
             acceptLoop(listenFD) { client in
@@ -84,4 +112,19 @@ final class Forwarder {
         }
         shutdown(to, SHUT_WR)
     }
+}
+
+/// Whether something accepts a TCP connection at host:port right now.
+func tcpAnswers(host: String, port: UInt16) -> Bool {
+    let fd = socket(AF_INET, SOCK_STREAM, 0)
+    guard fd >= 0 else { return false }
+    defer { close(fd) }
+    var addr = sockaddr_in()
+    addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+    addr.sin_family = sa_family_t(AF_INET)
+    addr.sin_port = port.bigEndian
+    guard inet_pton(AF_INET, host == "0.0.0.0" ? "127.0.0.1" : host, &addr.sin_addr) == 1 else { return false }
+    return withUnsafePointer(to: &addr) {
+        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+    } == 0
 }
