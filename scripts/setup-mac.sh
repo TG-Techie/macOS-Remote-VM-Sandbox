@@ -3,23 +3,25 @@
 #
 #   scripts/setup-mac.sh --from VM.tar.gz [--vms DIR]   use a VM packed on another Mac
 #   scripts/setup-mac.sh --fresh NAME [--vms DIR]       install macOS into a new VM, then open its window
+#   scripts/setup-mac.sh --open NAME [--vms DIR]        open an existing VM's window, to resume setup
 #
 # Both build and ad-hoc sign vmsandbox first. Everything stays inside this folder: the build in dist/, and the restore image, VMs and
 # snapshots in vms/ (git-ignored), unless --vms DIR says otherwise.
 # --fresh downloads the newest restore image this Mac supports (about 15-20 GB) and opens the VM's
-# window for Setup Assistant: create admin/admin and turn on Remote Login (docs/setup.md, step 4).
+# window for Setup Assistant (see the README). --open reopens an existing VM without reinstalling.
 set -euo pipefail
 cd "${0:A:h}/.."
-from= fresh= vms=$PWD/vms
+from= fresh= open= vms=$PWD/vms
 while (( $# )); do
   case $1 in
     --from) from=${2:A}; shift 2 ;;
     --fresh) fresh=$2; shift 2 ;;
+    --open) fresh=$2 open=1; shift 2 ;;
     --vms) vms=${2:A}; shift 2 ;;
     *) echo "unknown option $1; see the top of $0" >&2; exit 2 ;;
   esac
 done
-[[ -n $from$fresh && -z ${from:+$fresh} ]] || { echo "give exactly one of --from VM.tar.gz or --fresh NAME" >&2; exit 2 }
+[[ -n $from$fresh && -z ${from:+$fresh} ]] || { echo "give exactly one of --from VM.tar.gz, --fresh NAME or --open NAME" >&2; exit 2 }
 
 scripts/build.sh
 scripts/sign.sh >/dev/null
@@ -50,6 +52,7 @@ else
   setup_gb=$(( $(sysctl -n hw.memsize) / 2 / 1024**3 ))
   (( setup_gb < 4 )) && setup_gb=4
   (( setup_gb > 16 )) && setup_gb=16
+  [[ -z $open || -f $bundle/config.json ]] || { echo "no VM at $bundle; make one with --fresh $fresh" >&2; exit 1 }
   if [[ -f $bundle/config.json ]]; then
     # Rerunning after an install reopens the window. A failed install shows up as a failed boot;
     # then delete the bundle and run this again.
