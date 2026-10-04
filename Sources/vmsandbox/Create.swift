@@ -76,7 +76,7 @@ enum Create {
                 print("installed. The first vmsandbox run creates the account \(account.user) with automatic login and SSH, through Apple's guest provisioning.")
                 exit(0)
             case .success:
-                print("installed. Next: vmsandbox run \(bundle.url.path) --share PROJECT --gui, and finish Setup Assistant in the window.")
+                print("installed macOS into \(bundle.url.path)")
                 exit(0)
             case .failure(let error):
                 fail("install failed: \(error). The partial bundle is at \(bundle.url.path); delete it before trying again.")

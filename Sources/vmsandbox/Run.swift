@@ -33,43 +33,56 @@ enum Run {
 
         let configuration = try makeConfiguration(bundle, config, shares: shares, network: network == "nat")
         print("booting with \(config.cpuCount) CPUs and \(config.memoryBytes >> 30) GiB memory")
-        let vm = VZVirtualMachine(configuration: configuration)
-        self.vm = vm
-        let delegate = StopDelegate()
-        vm.delegate = delegate
-        self.delegate = delegate
-
         // A guest due for provisioning gets Apple's start options on this, its first boot.
         let startOptions = try config.provision.map { try Provisioning.startOptions(user: $0.user, password: $0.password) }
-        let started: (Error?) -> Void = { error in
-            if let error { fail("couldn't start the VM: \(error)") }
-            if let account = config.provision {
-                var updated = config
-                updated.provision = nil
-                do { try bundle.save(updated) } catch { fail("started, but couldn't record that provisioning ran: \(error)") }
-                print("provisioning the guest: account \(account.user), automatic login, SSH")
-            }
-            print("running \(bundle.url.path): project \(shares[0].url.path), network \(network)")
-            guard let socket = vm.socketDevices.first as? VZVirtioSocketDevice else { fail("the VM has no virtio socket device") }
-            do {
-                let forwarder = try Forwarder(device: socket, guestPort: guestPort, listen: listen)
-                forwarder.start()
-                self.forwarder = forwarder
-                print("MCP: http://\(listen.hostPort)/mcp → guest vsock port \(guestPort)")
-            } catch {
-                fail("couldn't listen on \(listen): \(error)")
-            }
-        }
-        if let startOptions {
-            vm.start(options: startOptions, completionHandler: started)
-        } else {
-            vm.start { result in
-                if case .failure(let error) = result { started(error) } else { started(nil) }
-            }
-        }
-        handleSignals()
+        let gui = options.flag("gui")
 
-        if options.flag("gui") { showWindow(vm, title: bundle.url.deletingPathExtension().lastPathComponent) }
+        // Just after an install, the installer's VM service can still hold the auxiliary storage
+        // for a few seconds; starting then fails with EAGAIN, so wait and try again.
+        func boot(attempt: Int) {
+            let vm = VZVirtualMachine(configuration: configuration)
+            self.vm = vm
+            let delegate = StopDelegate()
+            vm.delegate = delegate
+            self.delegate = delegate
+            let started: (Error?) -> Void = { error in
+                if let error {
+                    let posix = (error as NSError).userInfo[NSUnderlyingErrorKey] as? NSError
+                    if posix?.domain == NSPOSIXErrorDomain, posix?.code == Int(EAGAIN), attempt < 30 {
+                        if attempt == 1 { print("the VM's storage is still held by another process; waiting for it") }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { boot(attempt: attempt + 1) }
+                        return
+                    }
+                    fail("couldn't start the VM: \(error)")
+                }
+                if let account = config.provision {
+                    var updated = config
+                    updated.provision = nil
+                    do { try bundle.save(updated) } catch { fail("started, but couldn't record that provisioning ran: \(error)") }
+                    print("provisioning the guest: account \(account.user), automatic login, SSH")
+                }
+                print("running \(bundle.url.path): project \(shares[0].url.path), network \(network)")
+                guard let socket = vm.socketDevices.first as? VZVirtioSocketDevice else { fail("the VM has no virtio socket device") }
+                do {
+                    let forwarder = try Forwarder(device: socket, guestPort: guestPort, listen: listen)
+                    forwarder.start()
+                    self.forwarder = forwarder
+                    print("MCP: http://\(listen.hostPort)/mcp → guest vsock port \(guestPort)")
+                } catch {
+                    fail("couldn't listen on \(listen): \(error)")
+                }
+                if gui { showWindow(vm, title: bundle.url.deletingPathExtension().lastPathComponent) }
+            }
+            if let startOptions {
+                vm.start(options: startOptions, completionHandler: started)
+            } else {
+                vm.start { result in
+                    if case .failure(let error) = result { started(error) } else { started(nil) }
+                }
+            }
+        }
+        boot(attempt: 1)
+        handleSignals()
         dispatchMain()
     }
 

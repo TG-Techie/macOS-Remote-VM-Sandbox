@@ -45,19 +45,29 @@ if [[ -n $from ]]; then
   fi
 else
   bundle=$vms/$fresh.vmbundle
-  [[ ! -e $bundle ]] || { echo "$bundle already exists" >&2; exit 1 }
-  url=$(dist/vmsandbox ipsw-url | sed 's/.*: //')
-  ipsw=$vms/${url:t}
-  if [[ ! -f $ipsw ]]; then
-    curl -fL -C - -o "$ipsw.partial" "$url"
-    mv -f "$ipsw.partial" "$ipsw"
+  # First setup runs faster with more memory: half the Mac's RAM, between 4 and 16 GiB. Later boots
+  # choose their own with run --memory-gb.
+  setup_gb=$(( $(sysctl -n hw.memsize) / 2 / 1024**3 ))
+  (( setup_gb < 4 )) && setup_gb=4
+  (( setup_gb > 16 )) && setup_gb=16
+  if [[ -f $bundle/config.json ]]; then
+    # Rerunning after an install reopens the window. A failed install shows up as a failed boot;
+    # then delete the bundle and run this again.
+    echo "$bundle is already installed; opening its window"
+  else
+    url=$(dist/vmsandbox ipsw-url | sed 's/.*: //')
+    ipsw=$vms/${url:t}
+    if [[ ! -f $ipsw ]]; then
+      curl -fL -C - -o "$ipsw.partial" "$url"
+      mv -f "$ipsw.partial" "$ipsw"
+    fi
+    dist/vmsandbox create "$bundle" --ipsw "$ipsw" --memory-gb $setup_gb
   fi
-  dist/vmsandbox create "$bundle" --ipsw "$ipsw" --memory-gb 4
   echo "Opening the VM's window. In Setup Assistant create user admin, password admin, then in"
   echo "System Settings > General > Sharing turn on Remote Login. Leave the window open and run,"
   echo "in another terminal in this folder:  scripts/finalize-mac.sh $fresh"
   mkdir -p "$vms/empty-share"
-  exec dist/vmsandbox run "$bundle" --share "$vms/empty-share" --gui
+  exec dist/vmsandbox run "$bundle" --share "$vms/empty-share" --memory-gb $setup_gb --gui
 fi
 
 echo
