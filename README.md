@@ -39,7 +39,15 @@ dist/vmsandbox run vms/sandbox.vmbundle --share ~/path/to/project --memory-gb 12
 claude mcp add --transport http vm-sandbox http://127.0.0.1:8765/mcp
 ```
 
-Options: `--cpus N`, `--network none`, `--listen HOST:PORT`. Ctrl-C stops (twice forces).
+Serve it to another Mac over Tailscale (this Mac's tailnet address, found at start; no auth of its own,
+so your tailnet ACLs are the gate):
+
+```sh
+dist/vmsandbox run vms/sandbox.vmbundle --share ~/path/to/project --memory-gb 12 --listen tailnet:8765
+claude mcp add --transport http vm-sandbox http://<this-mac's-tailscale-name>:8765/mcp   # on the other Mac
+```
+
+Options: `--cpus N`, `--network none`, `--listen HOST:PORT` (HOST may be a name, or `tailnet`). Ctrl-C stops (twice forces).
 
 ## Snapshots (VM stopped)
 

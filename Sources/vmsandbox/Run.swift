@@ -27,8 +27,10 @@ enum Run {
         let shares = try guestShares(options)
         let network = options.value("network") ?? "nat"
         guard ["nat", "none"].contains(network) else { throw ToolError("--network is nat or none") }
-        let listen = try ListenAddress.parse(options.value("listen") ?? "127.0.0.1:8765")
-        guard case .tcp = listen else { throw ToolError("--listen takes HOST:PORT on the host") }
+        guard case .tcp(let listenHost, let listenPort) = try ListenAddress.parse(options.value("listen") ?? "127.0.0.1:8765") else {
+            throw ToolError("--listen takes HOST:PORT on the host")
+        }
+        let listen = ListenAddress.tcp(host: try resolveListenHost(listenHost), port: listenPort)
         let guestPort = UInt32(try options.int("guest-port", default: 8765))
         // SO_REUSEADDR lets our bind share a port with a wildcard listener, so a bind that succeeds
         // doesn't prove the port is ours. Refuse before booting if anything already answers on it.
@@ -163,4 +165,39 @@ extension ListenAddress {
         case .vsock(let port): return "vsock:\(port)"
         }
     }
+}
+
+/// An IPv4 address to bind for `--listen`'s HOST: an address as given; `tailnet` for this Mac's
+/// Tailscale address (the interface holding one in 100.64.0.0/10, Tailscale's range); or a host
+/// name, such as this Mac's MagicDNS name, resolved to IPv4.
+func resolveListenHost(_ host: String) throws -> String {
+    var probe = in_addr()
+    if inet_pton(AF_INET, host, &probe) == 1 { return host }
+    if host == "tailnet" {
+        var list: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&list) == 0 else { throw ToolError("couldn't list this Mac's network interfaces") }
+        defer { freeifaddrs(list) }
+        var next = list
+        while let entry = next?.pointee {
+            defer { next = entry.ifa_next }
+            guard let sa = entry.ifa_addr, sa.pointee.sa_family == sa_family_t(AF_INET) else { continue }
+            let addr = sa.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { UInt32(bigEndian: $0.pointee.sin_addr.s_addr) }
+            if addr & 0xFFC0_0000 == 0x6440_0000 { // 100.64.0.0/10
+                return "\(addr >> 24).\(addr >> 16 & 0xFF).\(addr >> 8 & 0xFF).\(addr & 0xFF)"
+            }
+        }
+        throw ToolError("--listen tailnet: no Tailscale address on this Mac; is Tailscale connected?")
+    }
+    var hints = addrinfo()
+    hints.ai_family = AF_INET
+    hints.ai_socktype = SOCK_STREAM
+    var result: UnsafeMutablePointer<addrinfo>?
+    guard getaddrinfo(host, nil, &hints, &result) == 0, let first = result, let sa = first.pointee.ai_addr else {
+        throw ToolError("--listen: couldn't resolve '\(host)' to an IPv4 address")
+    }
+    defer { freeaddrinfo(result) }
+    var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+    var sin = sa.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee.sin_addr }
+    inet_ntop(AF_INET, &sin, &buffer, socklen_t(INET_ADDRSTRLEN))
+    return String(cString: buffer)
 }
