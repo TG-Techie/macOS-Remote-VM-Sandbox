@@ -80,8 +80,9 @@ dist/sandbox-mcp host --root ~/path/to/project --print-profile                  
   `.sandbox-tmp/autostart.log`).
 - Each start is a new sandbox: jobs from an earlier start keep running, but can't be signalled from
   the new one.
-- Memory monitoring works (`vm_stat`, `memory_pressure`, sysctlbyname `hw.memsize`, `vm.swapusage`);
-  `ps`, `top` and the `sysctl` command don't.
+- `monitor_resources` reports the folder's volume (free now, and available once macOS purges local
+  snapshots and caches) and memory. Inside, `vm_stat`, `memory_pressure` and sysctlbyname
+  (`hw.memsize`, `vm.swapusage`) work; `ps`, `top` and the `sysctl` command don't.
 - `taildrop_get` moves files sent with Taildrop into `inbox/`. Add `.sandbox-home/` and
   `.sandbox-tmp/` to the project's `.gitignore`. No port has auth of its own; your tailnet ACLs are
   the gate.

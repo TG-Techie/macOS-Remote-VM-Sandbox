@@ -13,7 +13,7 @@ usage:
   sandbox-mcp shell|files|git --root PROJECT_DIR
   sandbox-mcp relay --listen vsock:PORT --to HOST:PORT
   sandbox-mcp host --root DIR [--listen tailscale|HOST[:PORT]] [--rsync HOST[:PORT]] [--expose PORT[:OUTER]] [--allow-read PATH,PATH] [--print-profile]
-  sandbox-mcp taildrop --root DIR
+  sandbox-mcp taildrop|monitor --root DIR
 """
 let version = "0.1"
 
@@ -49,6 +49,9 @@ do {
         }
     case "host":
         try Host.run(options, selfPath: Bundle.main.executablePath ?? CommandLine.arguments[0])
+    case "monitor":
+        serveStdio(MCPServer(name: "vm-sandbox-monitor", version: version,
+                             provider: LocalTools(MonitorServer(root: try options.require("root")).tools)))
     case "taildrop":
         serveStdio(MCPServer(name: "vm-sandbox-taildrop", version: version,
                              provider: LocalTools(try TaildropServer(root: try options.require("root"), home: options.value("home"), temp: options.value("tmp")).tools)))

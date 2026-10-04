@@ -3,14 +3,15 @@ import SandboxKit
 
 /// `sandbox-mcp host`: shell and file tools, plus Taildrop, for one folder on this Mac, with no VM.
 /// The shell and files servers, and everything they run, live under macOS's kernel sandbox
-/// (sandbox-exec) with srt's profile plus GPU access (makeProfile): no network, no git, writes only
-/// inside the folder, and no reads of /Users or /Volumes beyond it, this binary's folder and the
-/// read-only paths given. HOME and TMPDIR point inside the folder. Code and data move in and out
+/// (sandbox-exec) with srt's profile plus GPU access (makeProfile), for compute only: no network, no
+/// git, writes only inside the folder, and reads only of it, system code, developer tools,
+/// Homebrew's software and any --allow-read paths. HOME and TMPDIR point inside the folder. Code and data move in and out
 /// with rsync: each connection to the rsync port gets openrsync's daemon, under the same profile,
 /// serving the folder as module `project`. Three parts run outside the sandbox, all fixed code that
-/// takes no commands: this process, which listens and relays, and the Taildrop server, which only
-/// moves received files into inbox/. With --expose PORT[:OUTER], a command may listen on
-/// 127.0.0.1:PORT, and this process relays OUTER (default the same) on the MCP address to it.
+/// takes no commands: this process, which listens and relays; the Taildrop server, which only moves
+/// received files into inbox/; and the monitor, which reports free disk and memory. With
+/// --expose PORT[:OUTER], a command may listen on 127.0.0.1:PORT, and this process relays OUTER
+/// (default the same) on the MCP address to it.
 /// `<root>/autostart.sh`, if present, starts at launch under the sandbox. Each launch is a new
 /// sandbox: processes left from an earlier one keep running but can't be signalled from this one.
 enum Host {
@@ -86,8 +87,9 @@ enum Host {
         }
         let taildrop = AggregatorConfig.Server(name: "taildrop", command: selfPath, args: ["taildrop", "--root", root, "--home", realHome, "--tmp", realTemp])
         let rsyncURL = "rsync://\(hostName(rsync.host)):\(rsync.port)/project/"
-        let instructions = "These tools run on a Mac, confined by macOS's sandbox to one folder: \(root). Paths and shell working directories are relative to it; commands can't write outside it, read the rest of this Mac (only system code, developer tools and Homebrew's software), use the network, or run git; this Mac is for compute only. HOME and TMPDIR point inside it.\(expose.map { " A command may listen on 127.0.0.1:\($0) (and no other port); it is reachable from outside at \(hostName(mcp.host)):\(exposed?.port ?? $0)." } ?? "") The GPU works through Metal (MLX runs). Move code and data in and out with rsync from your side: rsync -a ./src/ \(rsyncURL)src/ (and the reverse to fetch). With no network, bring packages in too, such as a uv cache rsynced to .sandbox-home/.cache/uv for uv sync --offline; Python can be one installed outside /Users (Homebrew's), or given with --allow-read. Files sent to this Mac with Taildrop arrive with taildrop_get into inbox/. Use shell_job_start for anything longer than a few minutes, such as a training run, and sandbox_status if a tool seems missing."
-        let config = AggregatorConfig(instructions: instructions, servers: sandboxed + [taildrop])
+        let instructions = "These tools run on a Mac, confined by macOS's sandbox to one folder: \(root). Paths and shell working directories are relative to it; commands can't write outside it, read the rest of this Mac (only system code, developer tools and Homebrew's software), use the network, or run git; this Mac is for compute only. HOME and TMPDIR point inside it.\(expose.map { " A command may listen on 127.0.0.1:\($0) (and no other port); it is reachable from outside at \(hostName(mcp.host)):\(exposed?.port ?? $0)." } ?? "") The GPU works through Metal (MLX runs). Move code and data in and out with rsync from your side: rsync -a ./src/ \(rsyncURL)src/ (and the reverse to fetch). With no network, bring packages in too, such as a uv cache rsynced to .sandbox-home/.cache/uv for uv sync --offline; Python can be one installed outside /Users (Homebrew's), or given with --allow-read. monitor_resources reports free disk (including purgeable space) and memory. Files sent to this Mac with Taildrop arrive with taildrop_get into inbox/. Use shell_job_start for anything longer than a few minutes, such as a training run, and sandbox_status if a tool seems missing."
+        let monitor = AggregatorConfig.Server(name: "monitor", command: selfPath, args: ["monitor", "--root", root])
+        let config = AggregatorConfig(instructions: instructions, servers: sandboxed + [taildrop, monitor])
         let server = MCPServer(name: "vm-sandbox-host", version: version, instructions: instructions, provider: Aggregator(config))
         let fd = try listenSocket(.tcp(host: mcp.host, port: mcp.port))
         // <root>/autostart.sh, if there, starts under the sandbox like any job, so work resumes when
