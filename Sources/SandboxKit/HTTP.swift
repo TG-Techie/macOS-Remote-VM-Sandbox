@@ -200,3 +200,45 @@ public func mcpHTTPHandler(_ server: MCPServer, path: String = "/mcp") -> (HTTPR
         return HTTPResponse(status: 200, headers: ["Content-Type": "application/json"], body: response.encoded())
     }
 }
+
+/// A connected TCP socket to an IPv4 host:port.
+public func tcpConnect(host: String, port: UInt16) throws -> Int32 {
+    let fd = socket(AF_INET, SOCK_STREAM, 0)
+    guard fd >= 0 else { throw ToolError("socket: \(String(cString: strerror(errno)))") }
+    var addr = sockaddr_in()
+    addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+    addr.sin_family = sa_family_t(AF_INET)
+    addr.sin_port = port.bigEndian
+    guard inet_pton(AF_INET, host, &addr.sin_addr) == 1 else { close(fd); throw ToolError("'\(host)' is not an IPv4 address") }
+    let rc = withUnsafePointer(to: &addr) {
+        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+    }
+    guard rc == 0 else {
+        let message = String(cString: strerror(errno))
+        close(fd)
+        throw ToolError("connect \(host):\(port): \(message)")
+    }
+    var yes: Int32 = 1
+    setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &yes, socklen_t(MemoryLayout<Int32>.size))
+    return fd
+}
+
+/// Copies bytes both ways between two sockets until both directions end, then closes both.
+public func relay(_ a: Int32, _ b: Int32) {
+    func pump(_ from: Int32, _ to: Int32) {
+        var buffer = [UInt8](repeating: 0, count: 65536)
+        while true {
+            let n = read(from, &buffer, buffer.count)
+            if n < 0 && errno == EINTR { continue }
+            if n <= 0 { break }
+            if !writeAll(to, Data(buffer[0..<n])) { break }
+        }
+        shutdown(to, SHUT_WR)
+    }
+    let done = DispatchSemaphore(value: 0)
+    Thread.detachNewThread { pump(b, a); done.signal() }
+    pump(a, b)
+    done.wait()
+    close(a)
+    close(b)
+}

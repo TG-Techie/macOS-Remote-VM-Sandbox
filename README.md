@@ -47,6 +47,14 @@ dist/vmsandbox run vms/sandbox.vmbundle --share ~/path/to/project --memory-gb 12
 claude mcp add --transport http vm-sandbox http://<this-mac's-tailscale-name>:8765/mcp   # on the other Mac
 ```
 
+SSH to the guest, over vsock like MCP (works with no route to the guest). Keys only: add yours to
+`~/.ssh/authorized_keys` in the VM first.
+
+```sh
+dist/vmsandbox run vms/sandbox.vmbundle --share ~/path/to/project --listen tailscale --ssh tailscale
+ssh -p 8722 admin@<this-mac's-tailscale-name>                                            # on the other Mac
+```
+
 Options: `--cpus N`, `--network none`, `--listen HOST[:PORT]` (default 127.0.0.1:8765). Ctrl-C stops (twice forces).
 
 ## Snapshots (VM stopped)

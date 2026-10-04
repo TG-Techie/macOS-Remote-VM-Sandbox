@@ -8,6 +8,7 @@ import Virtualization
 enum Run {
     private static var vm: VZVirtualMachine?
     private static var forwarder: Forwarder?
+    private static var sshForwarder: Forwarder?
     private static var delegate: StopDelegate?
     private static var window: NSWindow?
     private static var signalSources: [DispatchSourceSignal] = []
@@ -31,11 +32,18 @@ enum Run {
             throw ToolError("--listen takes HOST:PORT on the host")
         }
         let listen = ListenAddress.tcp(host: try resolveListenHost(listenHost), port: listenPort)
+        // --ssh forwards to the guest's sshd through the guest's relay (install-guest.sh), over
+        // vsock like MCP, so it needs no route to the guest.
+        let ssh = try options.value("ssh").map { text -> ListenAddress in
+            let full = text.contains(":") ? text : "\(text):8722"
+            guard case .tcp(let host, let port) = try ListenAddress.parse(full) else { throw ToolError("--ssh takes tailscale or HOST[:PORT]") }
+            return .tcp(host: try resolveListenHost(host), port: port)
+        }
         let guestPort = UInt32(try options.int("guest-port", default: 8765))
         // SO_REUSEADDR lets our bind share a port with a wildcard listener, so a bind that succeeds
         // doesn't prove the port is ours. Refuse before booting if anything already answers on it.
-        if case .tcp(let host, let port) = listen, tcpAnswers(host: host, port: port) {
-            throw ToolError("something on this Mac already answers on \(host):\(port) (see: lsof -nP -iTCP:\(port) -sTCP:LISTEN); pick another port with --listen")
+        for case .tcp(let host, let port) in [listen] + (ssh.map { [$0] } ?? []) where tcpAnswers(host: host, port: port) {
+            throw ToolError("something on this Mac already answers on \(host):\(port) (see: lsof -nP -iTCP:\(port) -sTCP:LISTEN); pick another port")
         }
 
         let configuration = try makeConfiguration(bundle, config, shares: shares, network: network == "nat")
@@ -83,6 +91,16 @@ enum Run {
                     })
                 } catch {
                     fail("couldn't listen on \(listen): \(error)")
+                }
+                if let ssh {
+                    do {
+                        let forwarder = try Forwarder(device: socket, guestPort: 8722, listen: ssh)
+                        forwarder.start()
+                        self.sshForwarder = forwarder
+                        print("SSH: ssh -p \(ssh.port) admin@\(ssh.host) (key login; the guest relays to its sshd)")
+                    } catch {
+                        fail("couldn't listen on \(ssh) for SSH: \(error)")
+                    }
                 }
                 if gui { showWindow(vm, title: bundle.url.deletingPathExtension().lastPathComponent) }
             }
@@ -159,6 +177,13 @@ final class StopDelegate: NSObject, VZVirtualMachineDelegate {
 }
 
 extension ListenAddress {
+    var host: String { if case .tcp(let host, _) = self { host } else { "localhost" } }
+    var port: UInt32 {
+        switch self {
+        case .tcp(_, let port): UInt32(port)
+        case .vsock(let port): port
+        }
+    }
     var hostPort: String {
         switch self {
         case .tcp(let host, let port): return "\(host):\(port)"
