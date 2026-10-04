@@ -53,6 +53,36 @@ VMs elsewhere.
 The `admin`/`admin` account isn't a secret: the boundary is the VM, which only this Mac can
 reach.
 
+## Commands
+
+The ones used day to day, from this folder:
+
+```sh
+# Open the VM's window (for setup, or to look at it); nothing shared but an empty folder
+dist/vmsandbox run vms/sandbox.vmbundle --share vms/empty-share --gui
+
+# Run it headless with a project and 12 GB of memory; MCP at http://127.0.0.1:8765/mcp
+dist/vmsandbox run vms/sandbox.vmbundle --share ~/path/to/project --memory-gb 12
+
+# Check the guest's agent answers
+curl -s -X POST http://127.0.0.1:8765/mcp -d '{"jsonrpc":"2.0","id":1,"method":"ping"}'
+
+# Snapshot a stopped VM, and go back to it later
+cp -c -R vms/sandbox.vmbundle vms/sandbox-snap.vmbundle
+rm -rf vms/sandbox.vmbundle && cp -c -R vms/sandbox-snap.vmbundle vms/sandbox.vmbundle
+
+# In the VM's Terminal: start (or restart) the agent, and read its log
+zsh "/Volumes/My Shared Files/tools/install-guest.sh"
+tail ~/Library/Logs/vm-sandbox-mcp.log
+
+# If the Mac routes the VM's network away from its bridge (see Troubleshooting); the bridge
+# is the interface holding 192.168.64.1, often bridge100
+route -n get 192.168.64.2 | grep interface   # any guest address; should say bridge…
+sudo sh -c 'route -n delete 192.168.64.0/24; route -n add -net 192.168.64.0/24 -interface bridge100'
+```
+
+Stop a running VM with Ctrl-C in its terminal (twice to force it).
+
 ## Using it
 
 Boot the VM with a project folder shared into it:
@@ -108,7 +138,7 @@ unpacks the VM and offers to delete the archive. Not yet tried between two Macs.
   `~/Library/Logs/vm-sandbox-mcp.log`. `vmsandbox run` prints "guest connection failed" while the
   agent isn't up.
 - **The VM has no internet, or the Mac can't reach it at 192.168.64.x.** Check
-  `route -n get 192.168.64.1` on the Mac: it should name a `bridge` interface. VPNs and Tailscale
+  `route -n get 192.168.64.2` on the Mac: it should name a `bridge` interface. VPNs and Tailscale
   can route the VM's network (192.168.64.0/24, macOS's default) elsewhere; we've seen a static
   route to the LAN router appear on Macs running Tailscale. MCP over vsock is unaffected, so the
   agent keeps working; only internet access from the guest and SSH need the route.
